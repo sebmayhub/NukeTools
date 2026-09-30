@@ -1,4 +1,4 @@
-"""Tests der MakeSpace-Logik mit einem simulierten nuke-Modul.
+"""Tests der smaMakeSpace-Logik mit einem simulierten nuke-Modul.
 
 Ausfuehren:  python -m unittest discover -s tests
 """
@@ -67,18 +67,18 @@ fake.allNodes = lambda: list(fake.NODES)
 fake.selectedNodes = lambda: [n for n in fake.NODES if n.knob("selected") and n["selected"].value()]
 sys.modules["nuke"] = fake
 
-import makespace  # noqa: E402
+import smaMakeSpace  # noqa: E402
 
 
-def run(nodes, ref, direction=makespace.DOWN, factor=1):
+def run(nodes, ref, direction=smaMakeSpace.DOWN, factor=1):
     ref._knobs["selected"] = Knob(True)
     fake.NODES = nodes
-    makespace.make_space(direction, factor)
+    smaMakeSpace.make_space(direction, factor)
 
 
 # --- Tests -------------------------------------------------------------------
 
-class MakeSpaceTests(unittest.TestCase):
+class smaMakeSpaceTests(unittest.TestCase):
 
     def pipe(self):
         """Read -> Ref -> A -> Merge(B: Side) -> Viewer; Side liegt unterhalb von Ref."""
@@ -94,7 +94,7 @@ class MakeSpaceTests(unittest.TestCase):
     def test_nothing_without_single_selection(self):
         read, ref, a, *_ = self.pipe()
         fake.NODES = [read, ref, a]
-        makespace.make_space(makespace.DOWN)
+        smaMakeSpace.make_space(smaMakeSpace.DOWN)
         self.assertEqual(a.y, 200)
 
     def test_down_moves_downstream_side_branches_and_viewer(self):
@@ -158,7 +158,7 @@ class MakeSpaceTests(unittest.TestCase):
         ref = Node("Ref", y=200, inputs=[mid])
         below = Node("Below", y=300, inputs=[ref])
         bd = backdrop("Bd", -50, 150, 200, 100)               # enthaelt Ref
-        run([top, mid, ref, below, bd], ref, makespace.UP)
+        run([top, mid, ref, below, bd], ref, smaMakeSpace.UP)
         self.assertEqual((top.y, mid.y, ref.y, below.y), (-24, 76, 200, 300))
         self.assertEqual((bd.y, bd["bdheight"].value()), (126, 124))
 

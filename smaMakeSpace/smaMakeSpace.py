@@ -1,4 +1,4 @@
-"""MakeSpace - schafft Platz im Node Graph ober- bzw. unterhalb eines Nodes.
+"""smaMakeSpace - schafft Platz im Node Graph ober- bzw. unterhalb eines Nodes.
 
 Nuke 16.0v3 / Python 3.11
 
@@ -233,7 +233,7 @@ def make_space(direction=DOWN, factor=1):
         moved, grow = collect(ref, nuke.allNodes(), direction, grid)
 
         undo = nuke.Undo()
-        undo.begin("MakeSpace")
+        undo.begin("smaMakeSpace")
         try:
             for node in moved.values():
                 node.setYpos(int(node.ypos() + step * direction))
