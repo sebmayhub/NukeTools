@@ -1,6 +1,6 @@
-"""Tests der smaMakeSpace-Logik mit einem simulierten nuke-Modul.
+"""Tests for the smaMakeSpace logic using a fake nuke module.
 
-Ausfuehren:  python -m unittest discover -s tests
+Run:  python -m unittest discover -s tests
 """
 
 import os
@@ -61,7 +61,7 @@ fake = types.ModuleType("nuke")
 fake.Undo = Undo
 fake.lastHitGroup = lambda: Ctx()
 fake.root = lambda: Ctx()
-fake.toNode = lambda name: None  # -> Fallback-Raster 110 x 24
+fake.toNode = lambda name: None  # -> fallback grid 110 x 24
 fake.NODES = []
 fake.allNodes = lambda: list(fake.NODES)
 fake.selectedNodes = lambda: [n for n in fake.NODES if n.knob("selected") and n["selected"].value()]
@@ -81,7 +81,7 @@ def run(nodes, ref, direction=smaMakeSpace.DOWN, factor=1):
 class smaMakeSpaceTests(unittest.TestCase):
 
     def pipe(self):
-        """Read -> Ref -> A -> Merge(B: Side) -> Viewer; Side liegt unterhalb von Ref."""
+        """Read -> Ref -> A -> Merge(B: Side) -> Viewer; Side lies below Ref."""
         read = Node("Read", "Read", 0, 0)
         ref = Node("Ref", "Grade", 0, 100, inputs=[read])
         a = Node("A", "Grade", 0, 200, inputs=[ref])
@@ -113,10 +113,10 @@ class smaMakeSpaceTests(unittest.TestCase):
     def test_branch_stops_at_node_above_ref(self):
         ref = Node("Ref", y=100)
         a = Node("A", y=200, inputs=[ref])
-        high = Node("High", "Read", 300, 50)                # ueber Ref -> Abbruch
+        high = Node("High", "Read", 300, 50)                # above Ref -> branch stops
         above_child = Node("HighChild", x=300, y=60, inputs=[high])
         merge = Node("Merge", "Merge2", 0, 300, inputs=[high, a])
-        same = Node("Same", "Read", 300, 100)               # gleiche Hoehe -> bleibt
+        same = Node("Same", "Read", 300, 100)               # same height -> stays
         merge2 = Node("Merge2", "Merge2", 0, 400, inputs=[same, merge])
         run([ref, a, high, above_child, merge, same, merge2], ref)
         self.assertEqual((high.y, above_child.y, same.y), (50, 60, 100))
@@ -134,7 +134,7 @@ class smaMakeSpaceTests(unittest.TestCase):
         sticky_near = Node("StickyNear", "StickyNote", 200, 220)
         loose_far = Node("LooseFar", "Grade", 1000, 200)
         loose_above = Node("LooseAbove", "Grade", 100, 60)
-        chain = Node("Chain", "Grade", 200 + 3 * 110 + 50, 220)  # nur nahe am Sticky
+        chain = Node("Chain", "Grade", 200 + 3 * 110 + 50, 220)  # only near the sticky
         run([ref, a, sticky_near, loose_far, loose_above, chain], ref)
         self.assertEqual(sticky_near.y, 244)
         self.assertEqual((loose_far.y, loose_above.y, chain.y), (200, 60, 220))
@@ -143,9 +143,9 @@ class smaMakeSpaceTests(unittest.TestCase):
         ref = Node("Ref", y=100)
         a = Node("A", y=300, inputs=[ref])
         outer = backdrop("Outer", -50, 0, 400, 600)
-        inner = backdrop("Inner", -20, 50, 200, 100)          # enthaelt Ref
-        lower = backdrop("Lower", -20, 250, 300, 150)         # enthaelt A
-        passenger = Node("Passenger", "Read", 150, 300)       # im Lower, unverbunden
+        inner = backdrop("Inner", -20, 50, 200, 100)          # contains Ref
+        lower = backdrop("Lower", -20, 250, 300, 150)         # contains A
+        passenger = Node("Passenger", "Read", 150, 300)       # inside Lower, unconnected
         run([ref, a, outer, inner, lower, passenger], ref)
         self.assertEqual((outer.y, outer["bdheight"].value()), (0, 624))
         self.assertEqual((inner.y, inner["bdheight"].value()), (50, 124))
@@ -157,7 +157,7 @@ class smaMakeSpaceTests(unittest.TestCase):
         mid = Node("Mid", y=100, inputs=[top])
         ref = Node("Ref", y=200, inputs=[mid])
         below = Node("Below", y=300, inputs=[ref])
-        bd = backdrop("Bd", -50, 150, 200, 100)               # enthaelt Ref
+        bd = backdrop("Bd", -50, 150, 200, 100)               # contains Ref
         run([top, mid, ref, below, bd], ref, smaMakeSpace.UP)
         self.assertEqual((top.y, mid.y, ref.y, below.y), (-24, 76, 200, 300))
         self.assertEqual((bd.y, bd["bdheight"].value()), (126, 124))

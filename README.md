@@ -1,17 +1,17 @@
 # NukeTools
 
-Sammlung eigener Tools für Foundry Nuke (16.0v3). Jedes Tool liegt in einem eigenen Ordner.
+A collection of custom tools for Foundry Nuke (16.0v3). Each tool lives in its own folder.
 
-| Tool | Beschreibung |
+| Tool | Description |
 | --- | --- |
-| [smaMakeSpace](smaMakeSpace) | Schafft im Node Graph per Tastenkürzel Platz unter bzw. über einem selektierten Node. |
+| [smaMakeSpace](smaMakeSpace) | Makes space in the Node Graph below or above a selected node via shortcut. |
 
 ## Installation
 
-Pro Tool eine Zeile in `~/.nuke/init.py` ergänzen, z. B.:
+Add one line per tool to `~/.nuke/init.py`, e.g.:
 
 ```python
 nuke.pluginAddPath("D:/AI/Claude/NukeTools/smaMakeSpace")
 ```
 
-Details stehen in der README des jeweiligen Tools.
+See each tool's README for details.

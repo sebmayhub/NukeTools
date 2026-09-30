@@ -1,40 +1,40 @@
-"""smaMakeSpace - schafft Platz im Node Graph ober- bzw. unterhalb eines Nodes.
+"""smaMakeSpace - makes space in the Node Graph above or below a node.
 
 Nuke 16.0v3 / Python 3.11
 
-Ablauf (beschrieben fuer "nach unten", "nach oben" ist exakt gespiegelt):
-  1. Genau ein Node/Dot muss selektiert sein (Referenz-Nd), sonst passiert nichts.
-  2. Alle Nodes, die ueber echte Pipes (Inputs/Outputs, inkl. Masken, ohne
-     Hidden Inputs) durchgaengig mit dem Referenz-Nd verbunden sind und deren
-     Mittelpunkt echt unterhalb des Referenz-Nd liegt, werden verschoben.
-     Ein Zweig wird abgebrochen, sobald ein Node auf gleicher Hoehe oder
-     darueber erreicht wird.
-  3. Lose Nodes (ganz ohne Verbindungen) und StickyNotes im Umkreis der
-     verschobenen Nodes werden mitverschoben, sofern sie unterhalb liegen.
-  4. Backdrops, die den Referenz-Nd enthalten, werden vergroessert. Alle
-     anderen betroffenen Backdrops wandern komplett mit ihrem Inhalt mit.
+Behaviour (described for "down", "up" is exactly mirrored):
+  1. Exactly one node/Dot must be selected (the reference node), otherwise
+     nothing happens.
+  2. All nodes that are continuously connected to the reference node via real
+     pipes (inputs/outputs incl. masks, excluding hidden inputs) and whose
+     center lies strictly below the reference node are moved. A branch stops
+     as soon as a node at the same height or above is reached.
+  3. Loose nodes (without any connection) and StickyNotes near the moved
+     nodes are moved as well, as long as they lie below.
+  4. Backdrops containing the reference node are enlarged. All other affected
+     backdrops move completely, together with their contents.
 """
 
 import nuke
 
 # ---------------------------------------------------------------------------
-# Konfiguration
+# Configuration
 # ---------------------------------------------------------------------------
 
-# True: Der Code wird bei jedem Tastendruck neu geladen (fuer die Entwicklung).
+# True: the code is reloaded on every key press (for development).
 DEV_MODE = True
 
-# Faktor fuer den grossen Schritt (Ctrl+Shift+Pfeil).
+# Factor for the big step (Ctrl+Shift+Arrow).
 BIG_STEP_FACTOR = 4
 
-# Umkreis fuer lose Nodes / StickyNotes / Backdrops in Rastereinheiten.
+# Proximity radius for loose nodes / StickyNotes / backdrops, in grid units.
 PROXIMITY_GRID_UNITS = 3
 
-# Fallback-Werte, falls die Preferences nicht gelesen werden koennen.
+# Fallback values in case the preferences cannot be read.
 DEFAULT_GRID_WIDTH = 110
 DEFAULT_GRID_HEIGHT = 24
 
-# Fallback-Groessen fuer Nodes, die noch nicht gezeichnet wurden.
+# Fallback sizes for nodes that have not been drawn yet.
 DEFAULT_NODE_SIZE = (80, 18)
 DEFAULT_DOT_SIZE = (12, 12)
 
@@ -46,11 +46,11 @@ STICKY = "StickyNote"
 
 
 # ---------------------------------------------------------------------------
-# Hilfsfunktionen
+# Helpers
 # ---------------------------------------------------------------------------
 
 def _grid_size():
-    """Rasterbreite und -hoehe aus den Nuke-Preferences."""
+    """Grid width and height from the Nuke preferences."""
     try:
         prefs = nuke.toNode("preferences")
         return (int(prefs["GridWidth"].value()) or DEFAULT_GRID_WIDTH,
@@ -60,7 +60,7 @@ def _grid_size():
 
 
 def _current_group():
-    """Die Gruppe, in deren Node Graph zuletzt gearbeitet wurde."""
+    """The group whose Node Graph was used last."""
     try:
         group = nuke.lastHitGroup()
     except Exception:
@@ -69,7 +69,7 @@ def _current_group():
 
 
 def _rect(node):
-    """(x, y, w, h) eines Nodes im Node Graph."""
+    """(x, y, w, h) of a node in the Node Graph."""
     x, y = node.xpos(), node.ypos()
     if node.Class() == BACKDROP:
         return x, y, int(node["bdwidth"].value()), int(node["bdheight"].value())
@@ -85,7 +85,7 @@ def _center(node):
 
 
 def _is_beyond(node, ref_cy, direction):
-    """True, wenn der Mittelpunkt echt unterhalb (DOWN) bzw. oberhalb (UP) liegt."""
+    """True if the node center lies strictly below (DOWN) or above (UP) ref_cy."""
     return (_center(node)[1] - ref_cy) * direction > 0
 
 
@@ -96,7 +96,7 @@ def _contains(backdrop, point):
 
 
 def _is_near(a, b, margin_x, margin_y):
-    """True, wenn sich die um den Umkreis erweiterte Box von a mit b ueberschneidet."""
+    """True if the box of a, expanded by the margins, overlaps b."""
     ax, ay, aw, ah = _rect(a)
     bx, by, bw, bh = _rect(b)
     return (ax - margin_x < bx + bw and bx < ax + aw + margin_x and
@@ -109,10 +109,10 @@ def _hides_inputs(node):
 
 
 def _connections(nodes):
-    """Pipe-Nachbarn je Node sowie die Menge aller Nodes mit irgendeiner Verbindung.
+    """Pipe neighbours per node, plus the set of all nodes with any connection.
 
-    Fuer die Suche zaehlen nur sichtbare Pipes. "Lose" ist ein Node aber nur,
-    wenn er gar keine Verbindung hat, auch keine versteckte.
+    Only visible pipes count for the search. A node is only "loose", however,
+    if it has no connection at all, not even a hidden one.
     """
     neighbours = {}
     connected = set()
@@ -133,11 +133,11 @@ def _connections(nodes):
 
 
 # ---------------------------------------------------------------------------
-# Sammeln der zu verschiebenden Nodes
+# Collecting the nodes to move
 # ---------------------------------------------------------------------------
 
 def _collect_connected(ref, neighbours, direction):
-    """Alle ueber Pipes durchgaengig erreichbaren Nodes jenseits des Referenz-Nd."""
+    """All nodes beyond the reference node that are continuously reachable via pipes."""
     ref_cy = _center(ref)[1]
     found = {}
     visited = {ref.name()}
@@ -155,10 +155,10 @@ def _collect_connected(ref, neighbours, direction):
 
 
 def collect(ref, nodes, direction, grid=None):
-    """Ermittelt, was verschoben und was vergroessert wird.
+    """Determines what gets moved and what gets enlarged.
 
-    Rueckgabe: (zu verschiebende Nodes als dict name->node,
-                zu vergroessernde Backdrops als Liste)
+    Returns: (nodes to move as dict name->node,
+              backdrops to enlarge as list)
     """
     grid_w, grid_h = grid or _grid_size()
     margin_x = PROXIMITY_GRID_UNITS * grid_w
@@ -168,11 +168,11 @@ def collect(ref, nodes, direction, grid=None):
 
     neighbours, connected = _connections(nodes)
 
-    # 1. Verbundene Nodes (inkl. seitlicher Zweige und Viewer).
+    # 1. Connected nodes (incl. side branches and viewers).
     moved = _collect_connected(ref, neighbours, direction)
     anchors = list(moved.values())
 
-    # 2. Lose Nodes und StickyNotes im Umkreis (keine Kettenreaktion).
+    # 2. Nearby loose nodes and StickyNotes (no chain reaction).
     for node in nodes:
         name = node.name()
         if name in moved or name == ref.name() or name in connected:
@@ -201,7 +201,7 @@ def collect(ref, nodes, direction, grid=None):
         if holds_moved or is_near:
             moving_backdrops.append(backdrop)
 
-    # Wandernde Backdrops nehmen ihren gesamten Inhalt mit.
+    # Moving backdrops take their entire contents along.
     excluded = grow_names | {ref.name()}
     for backdrop in moving_backdrops:
         moved[backdrop.name()] = backdrop
@@ -215,11 +215,11 @@ def collect(ref, nodes, direction, grid=None):
 
 
 # ---------------------------------------------------------------------------
-# Einstiegspunkt
+# Entry point
 # ---------------------------------------------------------------------------
 
 def make_space(direction=DOWN, factor=1):
-    """Schafft Platz unter (DOWN) bzw. ueber (UP) dem selektierten Node."""
+    """Makes space below (DOWN) or above (UP) the selected node."""
     with _current_group():
         selection = nuke.selectedNodes()
         if len(selection) != 1:

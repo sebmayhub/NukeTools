@@ -1,4 +1,4 @@
-"""Registriert die smaMakeSpace-Tastenkuerzel im Node Graph."""
+"""Registers the smaMakeSpace shortcuts in the Node Graph."""
 
 import importlib
 
