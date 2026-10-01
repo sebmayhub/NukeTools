@@ -164,6 +164,32 @@ class smaMakeSpaceTests(unittest.TestCase):
         run([ref, a, f_src, f], ref, smaMakeSpace.UP)
         self.assertEqual((a.y, f.y, f_src.y), (176, 145, 600))
 
+    def test_moving_backdrop_pushes_loose_node_below(self):
+        """Screenshot case: Write inside the green backdrop moves, the backdrop
+        moves along and must push the loose node right below it."""
+        ref = Node("Ref", y=100)
+        write = Node("Write", "Write", 0, 300, inputs=[ref])
+        green = backdrop("Green", -50, 250, 300, 200)         # bottom at 450
+        loose = Node("Loose", "Read", 0, 463, 70, 80)         # just below, not near Write
+        run([ref, write, green, loose], ref)
+        self.assertEqual((write.y, green.y, loose.y), (324, 274, 487))
+
+    def test_moving_backdrop_pushes_backdrop_below(self):
+        ref = Node("Ref", y=100)
+        write = Node("Write", "Write", 0, 300, inputs=[ref])
+        green = backdrop("Green", -50, 250, 300, 200)
+        pink = backdrop("Pink", -50, 463, 300, 150)
+        inside = Node("Inside", "Read", 0, 550)
+        run([ref, write, green, pink, inside], ref)
+        self.assertEqual((pink.y, inside.y), (487, 574))
+
+    def test_growing_backdrop_pushes_node_below(self):
+        ref = Node("Ref", y=100)
+        bd = backdrop("Bd", -50, 50, 300, 100)                # contains Ref, bottom 150
+        loose = Node("Loose", "Read", 150, 163)
+        run([ref, bd, loose], ref)
+        self.assertEqual((bd["bdheight"].value(), loose.y), (124, 187))
+
     def test_hidden_input_is_not_a_pipe(self):
         ref = Node("Ref", y=100)
         hidden = Node("Hidden", y=200, inputs=[ref], hide_input=True)

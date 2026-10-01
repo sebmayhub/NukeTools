@@ -14,9 +14,11 @@ Behaviour (described for "down", "up" is exactly mirrored):
      nodes are moved as well, as long as they lie below.
   4. Backdrops containing the reference node are enlarged. All other affected
      backdrops move completely, together with their contents.
-  5. Any other node below the reference node that a moved node would overlap
-     (or come closer to than COLLISION_GAP) is pushed along, together with its
-     whole pipe below the reference node. This repeats until nothing collides.
+  5. Anything below the reference node that a moved node, a moved backdrop or
+     a growing backdrop would overlap (or come closer to than COLLISION_GAP)
+     is pushed along: a node together with its whole pipe below the reference
+     node, a backdrop with its entire contents. This repeats until nothing
+     collides.
 """
 
 import nuke
@@ -175,29 +177,58 @@ def _reachable(start, neighbours, ref_cy, direction):
     return found
 
 
-def _push_colliding(moved, candidates, neighbours, ref_cy, direction, step):
-    """Adds every node that a moved node would newly collide with, plus its
-    whole pipe beyond ref_cy. Repeats for the added nodes until nothing
-    collides any more."""
-    pending = [n for n in moved.values() if n.Class() != BACKDROP]
+def _target_rect(rect, step, direction, growing):
+    """Rect after the move: shifted, or enlarged for a growing backdrop."""
+    x, y, w, h = rect
+    if not growing:
+        return x, y + step * direction, w, h
+    if direction == UP:
+        return x, y - step, w, h + step
+    return x, y, w, h + step
+
+
+def _add_backdrop(backdrop, nodes, moved, excluded):
+    """Adds a backdrop and its entire contents to moved; returns what was added."""
+    added = [backdrop]
+    moved[backdrop.name()] = backdrop
+    for node in nodes:
+        if node.name() in excluded or node.name() in moved:
+            continue
+        if _contains(backdrop, _center(node)):
+            moved[node.name()] = node
+            added.append(node)
+    return added
+
+
+def _push_colliding(moved, grow, nodes, candidates, excluded, neighbours,
+                    ref_cy, direction, step):
+    """Adds everything that a moved node, a moved backdrop or a growing
+    backdrop would newly collide with. A hit node brings its whole pipe beyond
+    ref_cy, a hit backdrop its entire contents. Repeats for the added items
+    until nothing collides any more."""
+    pending = [(n, False) for n in moved.values()] + [(b, True) for b in grow]
     while pending:
-        node = pending.pop()
-        before = _expand(_rect(node), COLLISION_GAP, COLLISION_GAP)
-        x, y, w, h = before
-        after = (x, y + step * direction, w, h)
+        node, growing = pending.pop()
+        rect = _rect(node)
+        before = _expand(rect, COLLISION_GAP, COLLISION_GAP)
+        after = _expand(_target_rect(rect, step, direction, growing),
+                        COLLISION_GAP, COLLISION_GAP)
         for other in candidates:
             if other.name() in moved or not _is_beyond(other, ref_cy, direction):
                 continue
-            rect = _rect(other)
+            other_rect = _rect(other)
             # Only collisions caused by the move count, not existing overlaps.
-            if not _overlaps(after, rect) or _overlaps(before, rect):
+            if not _overlaps(after, other_rect) or _overlaps(before, other_rect):
                 continue
-            group = {other.name(): other}
-            group.update(_reachable(other, neighbours, ref_cy, direction))
-            for name, pushed in group.items():
-                if name not in moved:
-                    moved[name] = pushed
-                    pending.append(pushed)
+            if other.Class() == BACKDROP:
+                added = _add_backdrop(other, nodes, moved, excluded)
+            else:
+                group = {other.name(): other}
+                group.update(_reachable(other, neighbours, ref_cy, direction))
+                added = [n for name, n in group.items() if name not in moved]
+                for n in added:
+                    moved[n.name()] = n
+            pending.extend((n, False) for n in added)
 
 
 def collect(ref, nodes, direction, grid=None, step=None):
@@ -219,8 +250,7 @@ def collect(ref, nodes, direction, grid=None, step=None):
     grow = [b for b in backdrops if _contains(b, ref_center)]
     grow_names = {b.name() for b in grow}
     excluded = grow_names | {ref.name()}
-    candidates = [n for n in nodes
-                  if n.Class() != BACKDROP and n.name() != ref.name()]
+    candidates = [n for n in nodes if n.name() not in excluded]
 
     # 1. Connected nodes (incl. side branches and viewers).
     moved = _reachable(ref, neighbours, ref_cy, direction)
@@ -230,14 +260,15 @@ def collect(ref, nodes, direction, grid=None, step=None):
     while True:
         count = len(moved)
 
-        # 2. Nodes in the way, together with their pipes (chain reaction).
-        _push_colliding(moved, candidates, neighbours, ref_cy, direction, step)
+        # 2. Nodes and backdrops in the way (chain reaction).
+        _push_colliding(moved, grow, nodes, candidates, excluded, neighbours,
+                        ref_cy, direction, step)
 
         # 3. Nearby loose nodes and StickyNotes (only around connected nodes).
         anchors = [n for n in moved.values() if n.name() in connected]
         for node in candidates:
             name = node.name()
-            if name in moved or name in connected:
+            if name in moved or name in connected or node.Class() == BACKDROP:
                 continue
             if not _is_beyond(node, ref_cy, direction):
                 continue
@@ -253,14 +284,8 @@ def collect(ref, nodes, direction, grid=None, step=None):
             is_near = (_is_beyond(backdrop, ref_cy, direction) and
                        any(_is_near(anchor, backdrop, margin_x, margin_y)
                            for anchor in anchors))
-            if not (holds_moved or is_near):
-                continue
-            moved[backdrop.name()] = backdrop
-            for node in nodes:
-                if node.name() in excluded or node.name() in moved:
-                    continue
-                if _contains(backdrop, _center(node)):
-                    moved[node.name()] = node
+            if holds_moved or is_near:
+                _add_backdrop(backdrop, nodes, moved, excluded)
 
         if len(moved) == count:
             return moved, grow
