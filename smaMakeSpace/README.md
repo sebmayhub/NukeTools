@@ -27,6 +27,10 @@ Node Graph right-click menu under **smaMakeSpace**.
   moved along.
 - Backdrops around the reference node are enlarged; all other affected backdrops move
   completely, together with their contents.
+- Nodes are never pushed onto each other: any other node below the reference node that a
+  moved node would overlap (or get closer to than `COLLISION_GAP` = 12 units) is pushed
+  along, together with its whole pipe below the reference node. This repeats until nothing
+  collides. Overlaps that already existed before the move are left alone.
 
 ## Installation
 

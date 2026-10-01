@@ -131,6 +131,39 @@ class smaMakeSpaceTests(unittest.TestCase):
         self.assertEqual((side_ok.y, below_ok.y), (113, 200))
         self.assertEqual(side_low.y, 115 + 24)
 
+    def test_foreign_pipe_in_the_way_is_pushed_with_chain(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=200, inputs=[ref])                    # moves to 224
+        f_up = Node("FUp", "Read", 200, 40)                   # above Ref -> stays
+        f0 = Node("F0", x=200, y=150, inputs=[f_up])
+        f1 = Node("F1", x=0, y=231, inputs=[f0])              # hit by A
+        f2 = Node("F2", x=0, y=330, inputs=[f1])
+        g_src = Node("GSrc", "Read", 400, 700)
+        g = Node("G", x=0, y=262, inputs=[g_src])             # hit by F1 (chain)
+        h1 = Node("H1", "Read", 0, 500)                       # far away -> stays
+        h2 = Node("H2", x=0, y=600, inputs=[h1])
+        run([ref, a, f_up, f0, f1, f2, g_src, g, h1, h2], ref)
+        self.assertEqual((a.y, f0.y, f1.y, f2.y), (224, 174, 255, 354))
+        self.assertEqual((g.y, g_src.y), (286, 724))
+        self.assertEqual((f_up.y, h1.y, h2.y), (40, 500, 600))
+
+    def test_existing_overlap_does_not_push(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=200, inputs=[ref])
+        b_src = Node("BSrc", "Read", 90, -100)
+        beside = Node("Beside", x=90, y=200, inputs=[b_src])  # already within gap
+        run([ref, a, b_src, beside], ref)
+        self.assertEqual((a.y, beside.y), (224, 200))
+
+    def test_collision_up_is_mirrored(self):
+        ref = Node("Ref", y=300)
+        a = Node("A", y=200)
+        ref._inputs = [a]
+        f_src = Node("FSrc", "Read", 300, 600)
+        f = Node("F", x=0, y=169, inputs=[f_src])             # hit by A moving up
+        run([ref, a, f_src, f], ref, smaMakeSpace.UP)
+        self.assertEqual((a.y, f.y, f_src.y), (176, 145, 600))
+
     def test_hidden_input_is_not_a_pipe(self):
         ref = Node("Ref", y=100)
         hidden = Node("Hidden", y=200, inputs=[ref], hide_input=True)
