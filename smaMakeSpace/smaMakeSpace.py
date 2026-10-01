@@ -7,8 +7,9 @@ Behaviour (described for "down", "up" is exactly mirrored):
      nothing happens.
   2. All nodes that are continuously connected to the reference node via real
      pipes (inputs/outputs incl. masks, excluding hidden inputs) and whose
-     center lies strictly below the reference node are moved. A branch stops
-     as soon as a node at the same height or above is reached.
+     center lies below the reference node are moved. A branch stops as soon
+     as a node at the same height (within SAME_HEIGHT_TOLERANCE) or above is
+     reached.
   3. Loose nodes (without any connection) and StickyNotes near the moved
      nodes are moved as well, as long as they lie below.
   4. Backdrops containing the reference node are enlarged. All other affected
@@ -29,6 +30,10 @@ BIG_STEP_FACTOR = 4
 
 # Proximity radius for loose nodes / StickyNotes / backdrops, in grid units.
 PROXIMITY_GRID_UNITS = 3
+
+# Max. vertical deviation (in Node Graph units) between node centers that still
+# counts as "same height" as the reference node. Such nodes are not moved.
+SAME_HEIGHT_TOLERANCE = 10
 
 # Fallback values in case the preferences cannot be read.
 DEFAULT_GRID_WIDTH = 110
@@ -85,8 +90,9 @@ def _center(node):
 
 
 def _is_beyond(node, ref_cy, direction):
-    """True if the node center lies strictly below (DOWN) or above (UP) ref_cy."""
-    return (_center(node)[1] - ref_cy) * direction > 0
+    """True if the node center lies below (DOWN) or above (UP) ref_cy by more
+    than SAME_HEIGHT_TOLERANCE."""
+    return (_center(node)[1] - ref_cy) * direction > SAME_HEIGHT_TOLERANCE
 
 
 def _contains(backdrop, point):

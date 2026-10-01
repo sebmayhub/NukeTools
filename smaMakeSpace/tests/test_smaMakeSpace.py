@@ -122,6 +122,15 @@ class smaMakeSpaceTests(unittest.TestCase):
         self.assertEqual((high.y, above_child.y, same.y), (50, 60, 100))
         self.assertEqual((a.y, merge.y, merge2.y), (224, 324, 424))
 
+    def test_same_height_tolerance(self):
+        ref = Node("Ref", y=100)
+        side_ok = Node("SideOk", "Dot", 200, 110 - 6 + 9, 12, 12, inputs=[ref])  # center +10 -> same height
+        side_low = Node("SideLow", "Dot", 400, 110 - 6 + 11, 12, 12, inputs=[ref])  # center +11 -> below
+        below_ok = Node("BelowOk", x=200, y=200, inputs=[side_ok])
+        run([ref, side_ok, side_low, below_ok], ref)
+        self.assertEqual((side_ok.y, below_ok.y), (113, 200))
+        self.assertEqual(side_low.y, 115 + 24)
+
     def test_hidden_input_is_not_a_pipe(self):
         ref = Node("Ref", y=100)
         hidden = Node("Hidden", y=200, inputs=[ref], hide_input=True)

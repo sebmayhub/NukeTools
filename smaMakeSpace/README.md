@@ -20,7 +20,9 @@ Node Graph right-click menu under **smaMakeSpace**.
 - The reference node stays in place.
 - All nodes that are continuously connected to the reference node via real pipes (incl. masks,
   excluding hidden inputs) and whose center lies below it are moved – including side branches
-  and viewers. A branch ends at the first node at the same height or above.
+  and viewers. A branch ends at the first node at the same height or above. Nodes whose
+  center deviates by at most 10 units vertically (`SAME_HEIGHT_TOLERANCE`) count as
+  "same height", so slightly offset horizontal connections stay in place.
 - Loose nodes (without connections) and StickyNotes within 3 grid units of moved nodes are
   moved along.
 - Backdrops around the reference node are enlarged; all other affected backdrops move
