@@ -41,6 +41,8 @@ node by one step and its backdrops shrink. Nothing may end up overlapping:
 
 import nuke
 
+__version__ = "1.0.0"
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------

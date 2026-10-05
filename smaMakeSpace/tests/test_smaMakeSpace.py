@@ -423,6 +423,23 @@ class EvenSpacingTests(unittest.TestCase):
         self.assertEqual(dot.y - (ref.y + 18), 6)
 
 
+class VersionTests(unittest.TestCase):
+    """The version number is stated in several places; they must agree."""
+
+    def read(self, *parts):
+        tool = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(tool, *parts), encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_version_matches_changelog_and_readmes(self):
+        version = smaMakeSpace.__version__
+        latest = next(line for line in self.read("CHANGELOG.md").splitlines()
+                      if line.startswith("## "))
+        self.assertTrue(latest.startswith("## %s " % version), latest)
+        self.assertIn("Version %s " % version, self.read("README.md"))
+        self.assertIn("| %s |" % version, self.read("..", "README.md"))
+
+
 class Transposed:
     """Runs the inherited tests on the horizontal axis (see Node)."""
 
