@@ -1,14 +1,18 @@
-"""smaMakeSpace - makes or closes space in the Node Graph above or below a node.
+"""smaMakeSpace - makes or closes space in the Node Graph next to a node.
 
 Nuke 16.0v3 / Python 3.11
 
-Making space (described for "down", "up" is exactly mirrored):
+Works in all four directions. Described here for "down"; "up" is mirrored, and
+"right" / "left" are the same rules on the horizontal axis (read "same column"
+for "same height", "grid width" for "grid height" and so on).
+
+Making space:
   1. Exactly one node/Dot must be selected (the reference node), otherwise
      nothing happens.
   2. All nodes that are continuously connected to the reference node via real
      pipes (inputs/outputs incl. masks, excluding hidden inputs) and whose
      center lies below the reference node are moved. A branch stops as soon
-     as a node at the same height (within SAME_HEIGHT_TOLERANCE) or above is
+     as a node at the same height (within ALIGN_TOLERANCE) or above is
      reached.
   3. Loose nodes (without any connection) and StickyNotes near the moved
      nodes are moved as well, as long as they lie below.
@@ -45,9 +49,10 @@ DEV_MODE = True
 # Proximity radius for loose nodes / StickyNotes / backdrops, in grid units.
 PROXIMITY_GRID_UNITS = 3
 
-# Max. vertical deviation (in Node Graph units) between node centers that still
-# counts as "same height" as the reference node. Such nodes are not moved.
-SAME_HEIGHT_TOLERANCE = 10
+# Max. deviation (in Node Graph units) between node centers that still counts
+# as "same height" (vertical moves) or "same column" (horizontal moves) as the
+# reference node. Such nodes are not moved.
+ALIGN_TOLERANCE = 10
 
 # Minimum distance (in Node Graph units) a moved node must keep from nodes that
 # are not moved. Anything closer after the move is pushed along as well.
@@ -66,11 +71,16 @@ DEFAULT_GRID_HEIGHT = 24
 DEFAULT_NODE_SIZE = (80, 18)
 DEFAULT_DOT_SIZE = (12, 12)
 
-DOWN = 1
-UP = -1
+# Directions as (axis, sign). Axis 0 is x, axis 1 is y; rects are (x, y, w, h),
+# so rect[axis] is the position and rect[axis + 2] the size along that axis.
+RIGHT = (0, 1)
+LEFT = (0, -1)
+DOWN = (1, 1)
+UP = (1, -1)
 
 BACKDROP = "BackdropNode"
 STICKY = "StickyNote"
+SIZE_KNOBS = ("bdwidth", "bdheight")
 
 
 # ---------------------------------------------------------------------------
@@ -112,10 +122,18 @@ def _center(node):
     return x + w / 2.0, y + h / 2.0
 
 
-def _is_beyond(node, ref_cy, direction):
-    """True if the node center lies below (DOWN) or above (UP) ref_cy by more
-    than SAME_HEIGHT_TOLERANCE."""
-    return (_center(node)[1] - ref_cy) * direction > SAME_HEIGHT_TOLERANCE
+def _set_pos(node, axis, value):
+    if axis == 0:
+        node.setXpos(int(value))
+    else:
+        node.setYpos(int(value))
+
+
+def _is_beyond(node, ref_pos, direction):
+    """True if the node center lies past ref_pos in the given direction by
+    more than ALIGN_TOLERANCE."""
+    axis, sign = direction
+    return (_center(node)[axis] - ref_pos) * sign > ALIGN_TOLERANCE
 
 
 def _contains(backdrop, point):
@@ -173,8 +191,8 @@ def _connections(nodes):
 # Collecting the nodes to move
 # ---------------------------------------------------------------------------
 
-def _reachable(start, neighbours, ref_cy, direction):
-    """All nodes beyond ref_cy that are continuously reachable from start via
+def _reachable(start, neighbours, ref_pos, direction):
+    """All nodes beyond ref_pos that are continuously reachable from start via
     pipes (start itself excluded)."""
     found = {}
     visited = {start.name()}
@@ -185,7 +203,7 @@ def _reachable(start, neighbours, ref_cy, direction):
             if node.name() in visited:
                 continue
             visited.add(node.name())
-            if _is_beyond(node, ref_cy, direction):
+            if _is_beyond(node, ref_pos, direction):
                 found[node.name()] = node
                 stack.append(node)
     return found
@@ -194,12 +212,15 @@ def _reachable(start, neighbours, ref_cy, direction):
 def _target_rect(rect, step, direction, growing):
     """Rect after the move: shifted, or enlarged for a growing backdrop.
     A negative step pulls towards the reference node / shrinks the backdrop."""
-    x, y, w, h = rect
+    axis, sign = direction
+    target = list(rect)
     if not growing:
-        return x, y + step * direction, w, h
-    if direction == UP:
-        return x, y - step, w, h + step
-    return x, y, w, h + step
+        target[axis] += step * sign
+    else:
+        target[axis + 2] += step
+        if sign < 0:
+            target[axis] -= step
+    return tuple(target)
 
 
 def _add_backdrop(backdrop, nodes, moved, excluded):
@@ -216,10 +237,10 @@ def _add_backdrop(backdrop, nodes, moved, excluded):
 
 
 def _push_colliding(moved, grow, nodes, candidates, excluded, neighbours,
-                    ref_cy, direction, step):
+                    ref_pos, direction, step):
     """Adds everything that a moved node, a moved backdrop or a growing
     backdrop would newly collide with. A hit node brings its whole pipe beyond
-    ref_cy, a hit backdrop its entire contents. Repeats for the added items
+    ref_pos, a hit backdrop its entire contents. Repeats for the added items
     until nothing collides any more."""
     pending = [(n, False) for n in moved.values()] + [(b, True) for b in grow]
     while pending:
@@ -229,7 +250,7 @@ def _push_colliding(moved, grow, nodes, candidates, excluded, neighbours,
         after = _expand(_target_rect(rect, step, direction, growing),
                         COLLISION_GAP, COLLISION_GAP)
         for other in candidates:
-            if other.name() in moved or not _is_beyond(other, ref_cy, direction):
+            if other.name() in moved or not _is_beyond(other, ref_pos, direction):
                 continue
             other_rect = _rect(other)
             # Only collisions caused by the move count, not existing overlaps.
@@ -239,7 +260,7 @@ def _push_colliding(moved, grow, nodes, candidates, excluded, neighbours,
                 added = _add_backdrop(other, nodes, moved, excluded)
             else:
                 group = {other.name(): other}
-                group.update(_reachable(other, neighbours, ref_cy, direction))
+                group.update(_reachable(other, neighbours, ref_pos, direction))
                 added = [n for name, n in group.items() if name not in moved]
                 for n in added:
                     moved[n.name()] = n
@@ -256,13 +277,14 @@ def collect(ref, nodes, direction, grid=None, step=None, followers=True):
     Returns: (nodes to move as dict name->node,
               backdrops to enlarge as list)
     """
-    grid_w, grid_h = grid or _grid_size()
+    axis = direction[0]
+    grid = grid or _grid_size()
     if step is None:
-        step = grid_h
-    margin_x = PROXIMITY_GRID_UNITS * grid_w
-    margin_y = PROXIMITY_GRID_UNITS * grid_h
+        step = grid[axis]
+    margin_x = PROXIMITY_GRID_UNITS * grid[0]
+    margin_y = PROXIMITY_GRID_UNITS * grid[1]
     ref_center = _center(ref)
-    ref_cy = ref_center[1]
+    ref_pos = ref_center[axis]
 
     neighbours, connected = _connections(nodes)
     backdrops = [n for n in nodes if n.Class() == BACKDROP]
@@ -272,7 +294,7 @@ def collect(ref, nodes, direction, grid=None, step=None, followers=True):
     candidates = [n for n in nodes if n.name() not in excluded]
 
     # 1. Connected nodes (incl. side branches and viewers).
-    moved = _reachable(ref, neighbours, ref_cy, direction)
+    moved = _reachable(ref, neighbours, ref_pos, direction)
 
     # Each of the following rules can add nodes that trigger the others again,
     # so repeat until nothing changes any more.
@@ -283,7 +305,7 @@ def collect(ref, nodes, direction, grid=None, step=None, followers=True):
         if followers:
             # 2. Nodes and backdrops in the way (chain reaction).
             _push_colliding(moved, grow, nodes, candidates, excluded,
-                            neighbours, ref_cy, direction, step)
+                            neighbours, ref_pos, direction, step)
 
             # 3. Nearby loose nodes and StickyNotes (only around connected nodes).
             anchors = [n for n in moved.values() if n.name() in connected]
@@ -291,7 +313,7 @@ def collect(ref, nodes, direction, grid=None, step=None, followers=True):
                 name = node.name()
                 if name in moved or name in connected or node.Class() == BACKDROP:
                     continue
-                if not _is_beyond(node, ref_cy, direction):
+                if not _is_beyond(node, ref_pos, direction):
                     continue
                 if any(_is_near(anchor, node, margin_x, margin_y)
                        for anchor in anchors):
@@ -303,7 +325,7 @@ def collect(ref, nodes, direction, grid=None, step=None, followers=True):
             if backdrop.name() in grow_names or backdrop.name() in moved:
                 continue
             holds_moved = any(_contains(backdrop, c) for c in moved_centers)
-            is_near = (_is_beyond(backdrop, ref_cy, direction) and
+            is_near = (_is_beyond(backdrop, ref_pos, direction) and
                        any(_is_near(anchor, backdrop, margin_x, margin_y)
                            for anchor in anchors))
             if holds_moved or is_near:
@@ -340,14 +362,17 @@ def _groups(followers, neighbours):
     return group
 
 
-def _blockers(moved, grow, nodes, ref, direction, grid_h, step):
+def _blockers(moved, grow, nodes, ref, direction, grid_step, step):
     """Finds what prevents pulling the moved items towards the reference node.
 
+    grid_step is the grid size along the move axis.
     Returns a list of (item that cannot move, obstacle).
     """
-    ref_cy = _center(ref)[1]
+    axis, sign = direction
+    across = 1 - axis
+    ref_pos = _center(ref)[axis]
     grow_names = {b.name() for b in grow}
-    shift = -step * direction
+    shift = -step * sign
 
     def target(node):
         rect = _rect(node)
@@ -363,11 +388,11 @@ def _blockers(moved, grow, nodes, ref, direction, grid_h, step):
     for mover in moved.values():
         before, after = _rect(mover), target(mover)
         is_node = mover.Class() != BACKDROP
-        cy = _center(mover)[1]
+        pos = _center(mover)[axis]
 
-        # A node must not cross the height of the reference node.
-        if (is_node and _is_beyond(mover, ref_cy, direction) and
-                (cy + shift - ref_cy) * direction <= SAME_HEIGHT_TOLERANCE):
+        # A node must not cross the line of the reference node.
+        if (is_node and _is_beyond(mover, ref_pos, direction) and
+                (pos + shift - ref_pos) * sign <= ALIGN_TOLERANCE):
             blockers.append((mover, ref))
             continue
 
@@ -376,28 +401,30 @@ def _blockers(moved, grow, nodes, ref, direction, grid_h, step):
             # New overlap, or less than MIN_GAP of free space.
             hit = (_overlaps(_expand(after, MIN_GAP, MIN_GAP), other_after) and
                    not _overlaps(_expand(before, MIN_GAP, MIN_GAP), other_before))
-            # Nodes above each other keep one grid height between their centers.
+            # Nodes in line with each other keep one grid step between centers.
             if not hit and is_node and other.Class() != BACKDROP:
-                other_cy = _center(other)[1]
-                same_column = (before[0] < other_before[0] + other_before[2] and
-                               other_before[0] < before[0] + before[2])
-                hit = (same_column and (cy - other_cy) * direction > 0 and
-                       (cy + shift - other_cy) * direction < grid_h)
+                other_pos = _center(other)[axis]
+                in_line = (
+                    before[across] < other_before[across] + other_before[across + 2]
+                    and other_before[across] < before[across] + before[across + 2])
+                hit = (in_line and (pos - other_pos) * sign > 0 and
+                       (pos + shift - other_pos) * sign < grid_step)
             if hit:
                 blockers.append((mover, other))
                 break
 
     # A shrinking backdrop must keep everything inside that does not move.
     for backdrop in grow:
-        x, y, w, h = target(backdrop)
+        shrunk = target(backdrop)
         for other in stationary:
             if other.name() in grow_names or not _contains(backdrop, _center(other)):
                 continue
-            ox, oy, ow, oh = _rect(other)
-            if direction == UP:
-                inside = oy - MIN_GAP >= y
+            rect = _rect(other)
+            if sign < 0:
+                inside = rect[axis] - MIN_GAP >= shrunk[axis]
             else:
-                inside = oy + oh + MIN_GAP <= y + h
+                inside = (rect[axis] + rect[axis + 2] + MIN_GAP
+                          <= shrunk[axis] + shrunk[axis + 2])
             if not inside:
                 blockers.append((backdrop, other))
                 break
@@ -416,9 +443,10 @@ def plan_close(ref, nodes, direction, grid=None, step=None):
     Returns: (nodes to move as dict name->node, backdrops to shrink as list),
              or None if the move is blocked.
     """
+    axis = direction[0]
     grid = grid or _grid_size()
     if step is None:
-        step = grid[1]
+        step = grid[axis]
     moved, grow = collect(ref, nodes, direction, grid, step)
     mandatory, _ = collect(ref, nodes, direction, grid, step, followers=False)
     neighbours, _ = _connections(nodes)
@@ -426,7 +454,7 @@ def plan_close(ref, nodes, direction, grid=None, step=None):
                      if name not in mandatory}, neighbours)
 
     while True:
-        blockers = _blockers(moved, grow, nodes, ref, direction, grid[1], step)
+        blockers = _blockers(moved, grow, nodes, ref, direction, grid[axis], step)
         if not blockers:
             return moved, grow
         for mover, obstacle in blockers:
@@ -452,44 +480,49 @@ def _reference_node():
     return selection[0]
 
 
-def _apply(moved, backdrops, offset, resize, direction):
-    """Moves the nodes by offset and resizes the backdrops, as one undo step."""
+def _apply(moved, backdrops, direction, amount):
+    """Moves the nodes by amount in the given direction and enlarges the
+    backdrops by amount on that side (negative: back / shrink), as one undo
+    step."""
     if not moved and not backdrops:
         return
+    axis, sign = direction
     undo = nuke.Undo()
     undo.begin("smaMakeSpace")
     try:
         for node in moved.values():
-            node.setYpos(int(node.ypos() + offset))
+            _set_pos(node, axis, _rect(node)[axis] + amount * sign)
         for backdrop in backdrops:
-            height = backdrop["bdheight"]
-            height.setValue(int(height.value()) + resize)
-            if direction == UP:
-                backdrop.setYpos(int(backdrop.ypos() - resize))
+            size = backdrop[SIZE_KNOBS[axis]]
+            size.setValue(int(size.value()) + amount)
+            if sign < 0:
+                _set_pos(backdrop, axis, _rect(backdrop)[axis] - amount)
     finally:
         undo.end()
 
 
 def make_space(direction=DOWN):
-    """Makes space below (DOWN) or above (UP) the selected node."""
+    """Makes space next to the selected node: pushes everything on that side
+    (DOWN, UP, RIGHT or LEFT) one grid step away."""
     with _current_group():
         ref = _reference_node()
         if ref is None:
             return
         grid = _grid_size()
-        step = grid[1]
+        step = grid[direction[0]]
         moved, grow = collect(ref, nuke.allNodes(), direction, grid, step)
-        _apply(moved, grow, step * direction, step, direction)
+        _apply(moved, grow, direction, step)
 
 
 def close_space(direction=DOWN):
-    """Closes space below (DOWN) or above (UP) the selected node."""
+    """Closes space next to the selected node: pulls everything on that side
+    (DOWN, UP, RIGHT or LEFT) one grid step closer."""
     with _current_group():
         ref = _reference_node()
         if ref is None:
             return
         grid = _grid_size()
-        step = grid[1]
+        step = grid[direction[0]]
         plan = plan_close(ref, nuke.allNodes(), direction, grid, step)
         if plan:
-            _apply(plan[0], plan[1], -step * direction, -step, direction)
+            _apply(plan[0], plan[1], direction, -step)

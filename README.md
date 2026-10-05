@@ -4,7 +4,7 @@ A collection of custom tools for Foundry Nuke (16.0v3). Each tool lives in its o
 
 | Tool | Description |
 | --- | --- |
-| [smaMakeSpace](smaMakeSpace) | Makes space in the Node Graph below or above a selected node via shortcut. |
+| [smaMakeSpace](smaMakeSpace) | Makes or closes space in the Node Graph next to a selected node (in all four directions) via shortcut. |
 
 ## Installation
 

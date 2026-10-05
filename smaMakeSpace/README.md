@@ -1,6 +1,7 @@
 # smaMakeSpace
 
-Nuke tool (16.0v3) that makes or closes space in the Node Graph below or above a selected node.
+Nuke tool (16.0v3) that makes or closes space in the Node Graph next to a selected node –
+below, above, right or left of it.
 
 ## Usage
 
@@ -10,20 +11,29 @@ Select exactly one node or Dot (the reference node), then in the Node Graph:
 | --- | --- |
 | `Shift+↓` | Make space below: push everything below one grid height down |
 | `Shift+↑` | Make space above: push everything above one grid height up |
+| `Shift+→` | Make space right: push everything to the right one grid width right |
+| `Shift+←` | Make space left: push everything to the left one grid width left |
 | `Ctrl+Shift+↑` | Close space below: pull everything below one grid height up |
 | `Ctrl+Shift+↓` | Close space above: pull everything above one grid height down |
+| `Ctrl+Shift+←` | Close space right: pull everything to the right one grid width left |
+| `Ctrl+Shift+→` | Close space left: pull everything to the left one grid width right |
 
-The arrow is always the direction the nodes move in. Each key press is a separate undo step (`Ctrl+Z`). The commands are also available in the
-Node Graph right-click menu under **smaMakeSpace**.
+The arrow is always the direction the nodes move in. Each key press is a separate undo step
+(`Ctrl+Z`). The commands are also available in the Node Graph right-click menu under
+**smaMakeSpace**.
 
-## Making space (described for "below", "above" is mirrored)
+The rules below are described for "below". "Above" is mirrored, and "right" / "left" are the
+same rules on the horizontal axis: read "same column" for "same height", "grid width" for
+"grid height", and so on.
+
+## Making space
 
 - The reference node stays in place.
 - All nodes that are continuously connected to the reference node via real pipes (incl. masks,
   excluding hidden inputs) and whose center lies below it are moved – including side branches
   and viewers. A branch ends at the first node at the same height or above. Nodes whose
-  center deviates by at most 10 units vertically (`SAME_HEIGHT_TOLERANCE`) count as
-  "same height", so slightly offset horizontal connections stay in place.
+  center deviates by at most 10 units (`ALIGN_TOLERANCE`) count as "same height", so
+  slightly offset horizontal connections stay in place.
 - Loose nodes (without connections) and StickyNotes within 3 grid units of moved nodes are
   moved along.
 - Backdrops around the reference node are enlarged; all other affected backdrops move
@@ -36,7 +46,7 @@ Node Graph right-click menu under **smaMakeSpace**.
 
 ## Closing space
 
-The reverse of making space: the same items are pulled one grid height towards the reference
+The reverse of making space: the same items are pulled one grid step towards the reference
 node, and the backdrops around it shrink. Closing never makes anything overlap:
 
 - Nodes connected to the reference node, and the backdrops holding them, are mandatory. If
@@ -45,9 +55,9 @@ node, and the backdrops around it shrink. Closing never makes anything overlap:
   just follows. A follower that is blocked stays behind, together with its pipe / backdrop.
 - "Too close" means:
   - nodes above each other keep at least one grid height between their centers
-    (neighbouring grid rows),
+    (neighbouring grid rows); nodes beside each other keep one grid width,
   - everything keeps at least `MIN_GAP` = 6 units of free space,
-  - no node crosses the height of the reference node,
+  - no node crosses the height (or column) of the reference node,
   - a shrinking backdrop keeps everything inside that does not move.
 
 With `DEV_MODE = True` the Script Editor shows what blocked an ignored key press.

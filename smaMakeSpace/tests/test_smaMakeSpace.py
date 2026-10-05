@@ -25,26 +25,52 @@ class Knob:
 
 
 class Node:
+    """Fake node. The tests read and write x, y, w, h.
+
+    With TRANSPOSED switched on, the Nuke API hands the tool the layout with
+    x and y swapped. A test written for the vertical axis then exercises the
+    horizontal axis, with the very same numbers.
+    """
+
+    TRANSPOSED = False
+    _SWAPPED = {"bdwidth": "bdheight", "bdheight": "bdwidth"}
+
     def __init__(self, name, cls="Grade", x=0, y=0, w=80, h=18, inputs=(), **knobs):
         self._name, self._cls, self.x, self.y, self.w, self.h = name, cls, x, y, w, h
         self._inputs = list(inputs)
         self._knobs = {k: Knob(v) for k, v in knobs.items()}
 
+    def _key(self, name):
+        return self._SWAPPED.get(name, name) if Node.TRANSPOSED else name
+
     def name(self): return self._name
     def Class(self): return self._cls
-    def xpos(self): return self.x
-    def ypos(self): return self.y
-    def setYpos(self, y): self.y = y
-    def screenWidth(self): return self.w
-    def screenHeight(self): return self.h
+    def xpos(self): return self.y if Node.TRANSPOSED else self.x
+    def ypos(self): return self.x if Node.TRANSPOSED else self.y
+    def setXpos(self, v): setattr(self, "y" if Node.TRANSPOSED else "x", v)
+    def setYpos(self, v): setattr(self, "x" if Node.TRANSPOSED else "y", v)
+    def screenWidth(self): return self.h if Node.TRANSPOSED else self.w
+    def screenHeight(self): return self.w if Node.TRANSPOSED else self.h
     def inputs(self): return len(self._inputs)
     def input(self, i): return self._inputs[i]
-    def knob(self, name): return self._knobs.get(name)
-    def __getitem__(self, name): return self._knobs[name]
+    def knob(self, name): return self._knobs.get(self._key(name))
+    def __getitem__(self, name): return self._knobs[self._key(name)]
 
 
 def backdrop(name, x, y, w, h):
     return Node(name, "BackdropNode", x, y, 0, 0, bdwidth=w, bdheight=h)
+
+
+def width(bd):
+    return bd._knobs["bdwidth"].value()
+
+
+def height(bd):
+    return bd._knobs["bdheight"].value()
+
+
+# Grid 110 x 24, handed over swapped when the layout is transposed.
+PREFS = {"GridWidth": Knob(24), "GridHeight": Knob(110)}
 
 
 class Undo:
@@ -61,7 +87,7 @@ fake = types.ModuleType("nuke")
 fake.Undo = Undo
 fake.lastHitGroup = lambda: Ctx()
 fake.root = lambda: Ctx()
-fake.toNode = lambda name: None  # -> fallback grid 110 x 24
+fake.toNode = lambda name: PREFS if Node.TRANSPOSED else None  # None -> fallback grid
 fake.NODES = []
 fake.allNodes = lambda: list(fake.NODES)
 fake.selectedNodes = lambda: [n for n in fake.NODES if n.knob("selected") and n["selected"].value()]
@@ -70,22 +96,30 @@ sys.modules["nuke"] = fake
 import smaMakeSpace  # noqa: E402
 
 
-def run(nodes, ref, direction=smaMakeSpace.DOWN):
+DOWN, UP, RIGHT, LEFT = (smaMakeSpace.DOWN, smaMakeSpace.UP,
+                         smaMakeSpace.RIGHT, smaMakeSpace.LEFT)
+
+
+def _real(direction):
+    return {DOWN: RIGHT, UP: LEFT}[direction] if Node.TRANSPOSED else direction
+
+
+def run(nodes, ref, direction=DOWN):
     ref._knobs["selected"] = Knob(True)
     fake.NODES = nodes
-    smaMakeSpace.make_space(direction)
+    smaMakeSpace.make_space(_real(direction))
 
 
-def close(nodes, ref, direction=smaMakeSpace.DOWN, times=1):
+def close(nodes, ref, direction=DOWN, times=1):
     ref._knobs["selected"] = Knob(True)
     fake.NODES = nodes
     for _ in range(times):
-        smaMakeSpace.close_space(direction)
+        smaMakeSpace.close_space(_real(direction))
 
 
 # --- Tests -------------------------------------------------------------------
 
-class smaMakeSpaceTests(unittest.TestCase):
+class MakeSpaceTests(unittest.TestCase):
 
     def pipe(self):
         """Read -> Ref -> A -> Merge(B: Side) -> Viewer; Side lies below Ref."""
@@ -101,7 +135,7 @@ class smaMakeSpaceTests(unittest.TestCase):
     def test_nothing_without_single_selection(self):
         read, ref, a, *_ = self.pipe()
         fake.NODES = [read, ref, a]
-        smaMakeSpace.make_space(smaMakeSpace.DOWN)
+        smaMakeSpace.make_space(DOWN)
         self.assertEqual(a.y, 200)
 
     def test_down_moves_downstream_side_branches_and_viewer(self):
@@ -163,7 +197,7 @@ class smaMakeSpaceTests(unittest.TestCase):
         ref._inputs = [a]
         f_src = Node("FSrc", "Read", 300, 600)
         f = Node("F", x=0, y=169, inputs=[f_src])             # hit by A moving up
-        run([ref, a, f_src, f], ref, smaMakeSpace.UP)
+        run([ref, a, f_src, f], ref, UP)
         self.assertEqual((a.y, f.y, f_src.y), (176, 145, 600))
 
     def test_moving_backdrop_pushes_loose_node_below(self):
@@ -190,7 +224,7 @@ class smaMakeSpaceTests(unittest.TestCase):
         bd = backdrop("Bd", -50, 50, 300, 100)                # contains Ref, bottom 150
         loose = Node("Loose", "Read", 150, 163)
         run([ref, bd, loose], ref)
-        self.assertEqual((bd["bdheight"].value(), loose.y), (124, 187))
+        self.assertEqual((height(bd), loose.y), (124, 187))
 
     def test_hidden_input_is_not_a_pipe(self):
         ref = Node("Ref", y=100)
@@ -217,9 +251,9 @@ class smaMakeSpaceTests(unittest.TestCase):
         lower = backdrop("Lower", -20, 250, 300, 150)         # contains A
         passenger = Node("Passenger", "Read", 150, 300)       # inside Lower, unconnected
         run([ref, a, outer, inner, lower, passenger], ref)
-        self.assertEqual((outer.y, outer["bdheight"].value()), (0, 624))
-        self.assertEqual((inner.y, inner["bdheight"].value()), (50, 124))
-        self.assertEqual((lower.y, lower["bdheight"].value()), (274, 150))
+        self.assertEqual((outer.y, height(outer)), (0, 624))
+        self.assertEqual((inner.y, height(inner)), (50, 124))
+        self.assertEqual((lower.y, height(lower)), (274, 150))
         self.assertEqual((a.y, passenger.y), (324, 324))
 
     def test_up_is_mirrored(self):
@@ -228,9 +262,9 @@ class smaMakeSpaceTests(unittest.TestCase):
         ref = Node("Ref", y=200, inputs=[mid])
         below = Node("Below", y=300, inputs=[ref])
         bd = backdrop("Bd", -50, 150, 200, 100)               # contains Ref
-        run([top, mid, ref, below, bd], ref, smaMakeSpace.UP)
+        run([top, mid, ref, below, bd], ref, UP)
         self.assertEqual((top.y, mid.y, ref.y, below.y), (-24, 76, 200, 300))
-        self.assertEqual((bd.y, bd["bdheight"].value()), (126, 124))
+        self.assertEqual((bd.y, height(bd)), (126, 124))
 
 
 class CloseSpaceTests(unittest.TestCase):
@@ -265,10 +299,10 @@ class CloseSpaceTests(unittest.TestCase):
         before = [(n.name(), n.y) for n in nodes]
         run(nodes, ref)
         self.assertEqual((a.y, f1.y, g.y, sticky.y), (224, 255, 286, 234))
-        self.assertEqual(outer["bdheight"].value(), 124)
+        self.assertEqual(height(outer), 124)
         close(nodes, ref)
         self.assertEqual([(n.name(), n.y) for n in nodes], before)
-        self.assertEqual(outer["bdheight"].value(), 100)
+        self.assertEqual(height(outer), 100)
 
     def test_blocked_follower_stays_behind(self):
         ref = Node("Ref", y=100)
@@ -312,9 +346,9 @@ class CloseSpaceTests(unittest.TestCase):
         bd = backdrop("Bd", -50, 50, 300, 100)                # bottom 150
         nodes = [ref, a, bd]
         close(nodes, ref)
-        self.assertEqual((a.y, bd.y, bd["bdheight"].value()), (276, 50, 76))
+        self.assertEqual((a.y, bd.y, height(bd)), (276, 50, 76))
         close(nodes, ref)                                     # Ref would stick out
-        self.assertEqual((a.y, bd["bdheight"].value()), (276, 76))
+        self.assertEqual((a.y, height(bd)), (276, 76))
 
     def test_moving_backdrop_stops_below_reference_node(self):
         ref = Node("Ref", y=100)
@@ -332,16 +366,87 @@ class CloseSpaceTests(unittest.TestCase):
         ref = Node("Ref", y=300, inputs=[a])
         below = Node("Below", y=400, inputs=[ref])
         bd = backdrop("Bd", -50, 250, 200, 100)               # contains Ref
-        close([top, a, ref, below, bd], ref, smaMakeSpace.UP)
+        close([top, a, ref, below, bd], ref, UP)
         self.assertEqual((top.y, a.y, ref.y, below.y), (124, 224, 300, 400))
-        self.assertEqual((bd.y, bd["bdheight"].value()), (274, 76))
+        self.assertEqual((bd.y, height(bd)), (274, 76))
 
     def test_nothing_without_single_selection(self):
         ref = Node("Ref", y=100)
         a = Node("A", y=300, inputs=[ref])
         fake.NODES = [ref, a]
-        smaMakeSpace.close_space(smaMakeSpace.DOWN)
+        smaMakeSpace.close_space(DOWN)
         self.assertEqual(a.y, 300)
+
+
+class Transposed:
+    """Runs the inherited tests on the horizontal axis (see Node)."""
+
+    def setUp(self):
+        super().setUp()
+        Node.TRANSPOSED = True
+
+    def tearDown(self):
+        Node.TRANSPOSED = False
+        super().tearDown()
+
+
+class HorizontalMakeSpaceTests(Transposed, MakeSpaceTests):
+    pass
+
+
+class HorizontalCloseSpaceTests(Transposed, CloseSpaceTests):
+    pass
+
+
+class HorizontalLayoutTests(unittest.TestCase):
+    """Untransposed: a side branch next to a vertical main pipe, real grid."""
+
+    def setUp(self):
+        smaMakeSpace.DEV_MODE = False
+
+    def scene(self, side=1):
+        top = Node("Top", "Read", 0, 0)
+        src = Node("Src", "Read", 300 * side, 0)              # side column
+        dot = Node("Dot", "Dot", 34 + 300 * side, 103, 12, 12, inputs=[src])
+        ref = Node("Ref", "Merge2", 0, 100, inputs=[top, dot])
+        below = Node("Below", y=200, inputs=[ref])            # same column -> stays
+        bd = backdrop("Bd", -50, 50, 200, 100)                # contains Ref
+        return top, src, dot, ref, below, bd
+
+    def test_make_space_right_moves_side_branch_by_grid_width(self):
+        nodes = top, src, dot, ref, below, bd = self.scene()
+        run(list(nodes), ref, RIGHT)
+        self.assertEqual((src.x, dot.x), (410, 444))
+        self.assertEqual((top.x, ref.x, below.x), (0, 0, 0))
+        self.assertEqual([n.y for n in nodes], [0, 0, 103, 100, 200, 50])
+        self.assertEqual((bd.x, width(bd), height(bd)), (-50, 310, 100))
+
+    def test_make_space_left_grows_backdrop_to_the_left(self):
+        nodes = top, src, dot, ref, below, bd = self.scene(side=-1)
+        run(list(nodes), ref, LEFT)
+        self.assertEqual((src.x, dot.x), (-410, -376))
+        self.assertEqual((top.x, ref.x, below.x), (0, 0, 0))
+        self.assertEqual((bd.x, width(bd)), (-160, 310))
+
+    def test_close_space_right_reverts_make_space(self):
+        nodes = top, src, dot, ref, below, bd = self.scene()
+        nodes = list(nodes)
+        run(nodes, ref, RIGHT)
+        close(nodes, ref, RIGHT)
+        self.assertEqual((src.x, dot.x, bd.x, width(bd)), (300, 334, -50, 200))
+        close(nodes, ref, RIGHT)                              # Ref would stick out of Bd
+        self.assertEqual((src.x, dot.x, width(bd)), (300, 334, 200))
+
+    def test_close_space_right_stops_at_one_grid_width(self):
+        top = Node("Top", "Read", 0, 0)
+        src = Node("Src", "Read", 330, 0)
+        dot = Node("Dot", "Dot", 364, 103, 12, 12, inputs=[src])
+        ref = Node("Ref", "Merge2", 0, 100, inputs=[top, dot])
+        nodes = [top, src, dot, ref]
+        close(nodes, ref, RIGHT, times=2)
+        self.assertEqual((src.x, dot.x), (110, 144))          # centers 110 apart
+        close(nodes, ref, RIGHT)
+        self.assertEqual((src.x, dot.x, top.x, ref.x), (110, 144, 0, 0))
 
 
 if __name__ == "__main__":
