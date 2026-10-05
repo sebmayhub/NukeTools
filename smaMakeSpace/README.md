@@ -10,10 +10,10 @@ Select exactly one node or Dot (the reference node), then in the Node Graph:
 | --- | --- |
 | `Shift+↓` | Make space below: push everything below one grid height down |
 | `Shift+↑` | Make space above: push everything above one grid height up |
-| `Ctrl+Shift+↓` | Close space below: pull everything below one grid height up |
-| `Ctrl+Shift+↑` | Close space above: pull everything above one grid height down |
+| `Ctrl+Shift+↑` | Close space below: pull everything below one grid height up |
+| `Ctrl+Shift+↓` | Close space above: pull everything above one grid height down |
 
-Each key press is a separate undo step (`Ctrl+Z`). The commands are also available in the
+The arrow is always the direction the nodes move in. Each key press is a separate undo step (`Ctrl+Z`). The commands are also available in the
 Node Graph right-click menu under **smaMakeSpace**.
 
 ## Making space (described for "below", "above" is mirrored)
