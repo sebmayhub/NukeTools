@@ -5,16 +5,15 @@ import importlib
 import nuke
 
 
-def _run(direction, big=False):
+def _run(action, direction):
     import smaMakeSpace
     if smaMakeSpace.DEV_MODE:
         smaMakeSpace = importlib.reload(smaMakeSpace)
-    factor = smaMakeSpace.BIG_STEP_FACTOR if big else 1
-    smaMakeSpace.make_space(direction, factor)
+    getattr(smaMakeSpace, action)(direction)
 
 
 _menu = nuke.menu("Node Graph").addMenu("smaMakeSpace")
-_menu.addCommand("Space Down", lambda: _run(1), "Shift+Down", shortcutContext=2)
-_menu.addCommand("Space Up", lambda: _run(-1), "Shift+Up", shortcutContext=2)
-_menu.addCommand("Space Down (big)", lambda: _run(1, True), "Ctrl+Shift+Down", shortcutContext=2)
-_menu.addCommand("Space Up (big)", lambda: _run(-1, True), "Ctrl+Shift+Up", shortcutContext=2)
+_menu.addCommand("Make Space Below", lambda: _run("make_space", 1), "Shift+Down", shortcutContext=2)
+_menu.addCommand("Make Space Above", lambda: _run("make_space", -1), "Shift+Up", shortcutContext=2)
+_menu.addCommand("Close Space Below", lambda: _run("close_space", 1), "Ctrl+Shift+Down", shortcutContext=2)
+_menu.addCommand("Close Space Above", lambda: _run("close_space", -1), "Ctrl+Shift+Up", shortcutContext=2)

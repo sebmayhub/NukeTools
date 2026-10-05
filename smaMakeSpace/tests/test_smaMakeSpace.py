@@ -70,10 +70,17 @@ sys.modules["nuke"] = fake
 import smaMakeSpace  # noqa: E402
 
 
-def run(nodes, ref, direction=smaMakeSpace.DOWN, factor=1):
+def run(nodes, ref, direction=smaMakeSpace.DOWN):
     ref._knobs["selected"] = Knob(True)
     fake.NODES = nodes
-    smaMakeSpace.make_space(direction, factor)
+    smaMakeSpace.make_space(direction)
+
+
+def close(nodes, ref, direction=smaMakeSpace.DOWN, times=1):
+    ref._knobs["selected"] = Knob(True)
+    fake.NODES = nodes
+    for _ in range(times):
+        smaMakeSpace.close_space(direction)
 
 
 # --- Tests -------------------------------------------------------------------
@@ -104,11 +111,6 @@ class smaMakeSpaceTests(unittest.TestCase):
         self.assertEqual((read.y, ref.y), (0, 100))
         for node, y in ((a, 200), (side_src, 150), (side, 200), (merge, 300), (viewer, 400)):
             self.assertEqual(node.y, y + 24, node.name())
-
-    def test_big_step(self):
-        nodes = self.pipe()
-        run(list(nodes), nodes[1], factor=4)
-        self.assertEqual(nodes[2].y, 200 + 96)
 
     def test_branch_stops_at_node_above_ref(self):
         ref = Node("Ref", y=100)
@@ -229,6 +231,117 @@ class smaMakeSpaceTests(unittest.TestCase):
         run([top, mid, ref, below, bd], ref, smaMakeSpace.UP)
         self.assertEqual((top.y, mid.y, ref.y, below.y), (-24, 76, 200, 300))
         self.assertEqual((bd.y, bd["bdheight"].value()), (126, 124))
+
+
+class CloseSpaceTests(unittest.TestCase):
+
+    def setUp(self):
+        smaMakeSpace.DEV_MODE = False  # no "blocked by" output during tests
+
+    def test_pulls_until_one_grid_height_remains(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=196, inputs=[ref])                    # centers 96 apart
+        b = Node("B", y=300, inputs=[a])
+        nodes = [ref, a, b]
+        close(nodes, ref, times=3)
+        self.assertEqual((a.y, b.y), (124, 228))              # centers 24 apart
+        close(nodes, ref)
+        self.assertEqual((ref.y, a.y, b.y), (100, 124, 228))  # ignored
+
+    def test_close_reverts_make_space(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=200, inputs=[ref])
+        f_up = Node("FUp", "Read", 200, 40)
+        f0 = Node("F0", x=200, y=150, inputs=[f_up])
+        f1 = Node("F1", x=0, y=231, inputs=[f0])              # pushed by A
+        f2 = Node("F2", x=0, y=330, inputs=[f1])
+        g_src = Node("GSrc", "Read", 400, 700)
+        g = Node("G", x=0, y=262, inputs=[g_src])             # pushed by F1
+        h1 = Node("H1", "Read", 0, 500)
+        h2 = Node("H2", x=0, y=600, inputs=[h1])
+        sticky = Node("Sticky", "StickyNote", 100, 210)
+        outer = backdrop("Outer", -50, 50, 600, 100)          # contains Ref
+        nodes = [ref, a, f_up, f0, f1, f2, g_src, g, h1, h2, sticky, outer]
+        before = [(n.name(), n.y) for n in nodes]
+        run(nodes, ref)
+        self.assertEqual((a.y, f1.y, g.y, sticky.y), (224, 255, 286, 234))
+        self.assertEqual(outer["bdheight"].value(), 124)
+        close(nodes, ref)
+        self.assertEqual([(n.name(), n.y) for n in nodes], before)
+        self.assertEqual(outer["bdheight"].value(), 100)
+
+    def test_blocked_follower_stays_behind(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=172, inputs=[ref])
+        sticky = Node("Sticky", "StickyNote", 200, 130)       # would cross Ref's height
+        close([ref, a, sticky], ref)
+        self.assertEqual((a.y, sticky.y), (148, 130))
+
+    def test_blocked_follower_keeps_its_whole_pipe(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=200, inputs=[ref])
+        w_src = Node("WSrc", "Read", 150, 0)
+        wall = Node("Wall", x=150, y=183, inputs=[w_src])     # unrelated, does not move
+        f_src = Node("FSrc", x=150, y=215)                    # right below Wall
+        f1 = Node("F1", x=0, y=231, inputs=[f_src])           # in A's way -> follower
+        close([ref, a, w_src, wall, f_src, f1], ref)
+        self.assertEqual(a.y, 176)
+        self.assertEqual((f1.y, f_src.y, wall.y), (231, 215, 183))
+
+    def test_connected_side_branch_blocks_everything(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=300, inputs=[ref])
+        s1 = Node("S1", "Dot", 300, 103, 12, 12)              # same height as Ref
+        s2 = Node("S2", x=300, y=200, inputs=[s1])
+        merge = Node("Merge", "Merge2", 0, 400, inputs=[s2, a])
+        nodes = [ref, a, s1, s2, merge]
+        close(nodes, ref, times=3)
+        self.assertEqual((a.y, s2.y, merge.y), (228, 128, 328))
+        close(nodes, ref)                                     # S2 would reach S1
+        self.assertEqual((a.y, s2.y, merge.y), (228, 128, 328))
+
+    def test_tall_node_does_not_overlap(self):
+        ref = Node("Ref", y=100)
+        tall = Node("Tall", "Read", 0, 129, 80, 80, inputs=[ref])  # centers 60 apart
+        close([ref, tall], ref)
+        self.assertEqual(tall.y, 129)
+
+    def test_backdrop_shrinks_but_keeps_reference_node(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=300, inputs=[ref])
+        bd = backdrop("Bd", -50, 50, 300, 100)                # bottom 150
+        nodes = [ref, a, bd]
+        close(nodes, ref)
+        self.assertEqual((a.y, bd.y, bd["bdheight"].value()), (276, 50, 76))
+        close(nodes, ref)                                     # Ref would stick out
+        self.assertEqual((a.y, bd["bdheight"].value()), (276, 76))
+
+    def test_moving_backdrop_stops_below_reference_node(self):
+        ref = Node("Ref", y=100)
+        write = Node("Write", "Write", 0, 300, inputs=[ref])
+        green = backdrop("Green", -50, 160, 300, 200)
+        nodes = [ref, write, green]
+        close(nodes, ref)
+        self.assertEqual((write.y, green.y), (276, 136))
+        close(nodes, ref)                                     # Green would cover Ref
+        self.assertEqual((write.y, green.y), (276, 136))
+
+    def test_up_is_mirrored(self):
+        top = Node("Top", "Read", 0, 100)
+        a = Node("A", y=200, inputs=[top])
+        ref = Node("Ref", y=300, inputs=[a])
+        below = Node("Below", y=400, inputs=[ref])
+        bd = backdrop("Bd", -50, 250, 200, 100)               # contains Ref
+        close([top, a, ref, below, bd], ref, smaMakeSpace.UP)
+        self.assertEqual((top.y, a.y, ref.y, below.y), (124, 224, 300, 400))
+        self.assertEqual((bd.y, bd["bdheight"].value()), (274, 76))
+
+    def test_nothing_without_single_selection(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=300, inputs=[ref])
+        fake.NODES = [ref, a]
+        smaMakeSpace.close_space(smaMakeSpace.DOWN)
+        self.assertEqual(a.y, 300)
 
 
 if __name__ == "__main__":
