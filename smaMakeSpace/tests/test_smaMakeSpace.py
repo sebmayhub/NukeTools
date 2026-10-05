@@ -100,6 +100,11 @@ DOWN, UP, RIGHT, LEFT = (smaMakeSpace.DOWN, smaMakeSpace.UP,
                          smaMakeSpace.RIGHT, smaMakeSpace.LEFT)
 
 
+def by_axis(vertical, horizontal):
+    """Expected value where the two axes deliberately behave differently."""
+    return horizontal if Node.TRANSPOSED else vertical
+
+
 def _real(direction):
     return {DOWN: RIGHT, UP: LEFT}[direction] if Node.TRANSPOSED else direction
 
@@ -182,6 +187,14 @@ class MakeSpaceTests(unittest.TestCase):
         self.assertEqual((a.y, f0.y, f1.y, f2.y), (224, 174, 255, 354))
         self.assertEqual((g.y, g_src.y), (286, 724))
         self.assertEqual((f_up.y, h1.y, h2.y), (40, 500, 600))
+
+    def test_tightly_stacked_foreign_node_is_pushed(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=200, inputs=[ref])
+        f_src = Node("FSrc", "Read", 200, 0)
+        f = Node("F", x=0, y=224, inputs=[f_src])             # only 6 below A
+        run([ref, a, f_src, f], ref)
+        self.assertEqual((a.y, f.y, f_src.y), (224, 248, 0))
 
     def test_existing_overlap_does_not_push(self):
         ref = Node("Ref", y=100)
@@ -331,14 +344,20 @@ class CloseSpaceTests(unittest.TestCase):
         nodes = [ref, a, s1, s2, merge]
         close(nodes, ref, times=3)
         self.assertEqual((a.y, s2.y, merge.y), (228, 128, 328))
-        close(nodes, ref)                                     # S2 would reach S1
-        self.assertEqual((a.y, s2.y, merge.y), (228, 128, 328))
+        # S2 has 7 left before it reaches S1: vertically everything moves
+        # those 7, horizontally a full step is impossible.
+        close(nodes, ref)
+        expected = by_axis((221, 121, 321), (228, 128, 328))
+        self.assertEqual((a.y, s2.y, merge.y), expected)
+        close(nodes, ref)
+        self.assertEqual((a.y, s2.y, merge.y), expected)
 
     def test_tall_node_does_not_overlap(self):
         ref = Node("Ref", y=100)
-        tall = Node("Tall", "Read", 0, 129, 80, 80, inputs=[ref])  # centers 60 apart
-        close([ref, tall], ref)
-        self.assertEqual(tall.y, 129)
+        tall = Node("Tall", "Read", 0, 129, 80, 80, inputs=[ref])  # 11 below Ref
+        nodes = [ref, tall]
+        close(nodes, ref, times=2)
+        self.assertEqual(tall.y, by_axis(124, 129))           # 6 below Ref / not at all
 
     def test_backdrop_shrinks_but_keeps_reference_node(self):
         ref = Node("Ref", y=100)
@@ -357,8 +376,8 @@ class CloseSpaceTests(unittest.TestCase):
         nodes = [ref, write, green]
         close(nodes, ref)
         self.assertEqual((write.y, green.y), (276, 136))
-        close(nodes, ref)                                     # Green would cover Ref
-        self.assertEqual((write.y, green.y), (276, 136))
+        close(nodes, ref, times=2)                            # Green must not cover Ref
+        self.assertEqual((write.y, green.y), by_axis((264, 124), (276, 136)))
 
     def test_up_is_mirrored(self):
         top = Node("Top", "Read", 0, 100)
@@ -376,6 +395,32 @@ class CloseSpaceTests(unittest.TestCase):
         fake.NODES = [ref, a]
         smaMakeSpace.close_space(DOWN)
         self.assertEqual(a.y, 300)
+
+
+class EvenSpacingTests(unittest.TestCase):
+    """Vertically, fully closed nodes are MIN_GAP apart, whatever their height."""
+
+    def setUp(self):
+        smaMakeSpace.DEV_MODE = False
+
+    def test_tall_reference_node_gets_the_same_gap_on_both_sides(self):
+        merge = Node("Merge1", "Merge2", 0, 60)               # 22 above FrameHold
+        hold = Node("FrameHold1", "FrameHold", 0, 100, 80, 30, inputs=[merge])
+        transform = Node("Transform2", "Transform", 0, 152, inputs=[hold])  # 22 below
+        blur = Node("Blur1", "Blur", 0, 200, inputs=[transform])
+        nodes = [merge, hold, transform, blur]
+        close(nodes, hold, DOWN, times=3)
+        close(nodes, hold, UP, times=3)
+        self.assertEqual(hold.y, 100)
+        self.assertEqual(hold.y - (merge.y + 18), 6)
+        self.assertEqual(transform.y - (hold.y + 30), 6)
+        self.assertEqual(blur.y - transform.y, 48)            # layout below is kept
+
+    def test_dot_gets_the_same_gap(self):
+        ref = Node("Ref", y=100)
+        dot = Node("Dot", "Dot", 34, 150, 12, 12, inputs=[ref])
+        close([ref, dot], ref, times=3)
+        self.assertEqual(dot.y - (ref.y + 18), 6)
 
 
 class Transposed:

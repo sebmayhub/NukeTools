@@ -42,7 +42,7 @@ same rules on the horizontal axis: read "same column" for "same height", "grid w
   moved backdrop or a growing backdrop would overlap (or get closer to than
   `COLLISION_GAP` = 12 units) is pushed along – a node together with its whole pipe below
   the reference node, a backdrop with its entire contents. This repeats until nothing
-  collides. Overlaps that already existed before the move are left alone.
+  collides. Items that already overlap before the move are left alone.
 
 ## Closing space
 
@@ -53,12 +53,15 @@ node, and the backdrops around it shrink. Closing never makes anything overlap:
   one of them would get too close to something that does not move, the key press is ignored.
 - Everything else (loose nodes, pipes and backdrops that are merely nearby or in the way)
   just follows. A follower that is blocked stays behind, together with its pipe / backdrop.
-- "Too close" means:
-  - nodes above each other keep at least one grid height between their centers
-    (neighbouring grid rows); nodes beside each other keep one grid width,
-  - everything keeps at least `MIN_GAP` = 6 units of free space,
+- The limits:
+  - everything keeps at least `MIN_GAP` = 6 units of free space to whatever does not move
+    (6 is what two standard nodes on neighbouring grid rows have),
   - no node crosses the height (or column) of the reference node,
   - a shrinking backdrop keeps everything inside that does not move.
+- Vertically, the last step is shortened so that exactly `MIN_GAP` remains. Fully closed
+  nodes are therefore evenly spaced, however tall they are (labels, postage stamps, Dots).
+- Horizontally, only whole grid steps are made, and nodes beside each other keep one grid
+  width between their centers, so columns stay on the grid.
 
 With `DEV_MODE = True` the Script Editor shows what blocked an ignored key press.
 
