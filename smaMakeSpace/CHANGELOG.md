@@ -4,6 +4,12 @@ All notable changes to smaMakeSpace. Versions follow `MAJOR.MINOR.PATCH`:
 PATCH for fixes, MINOR for new features, MAJOR for changes that alter existing behaviour
 or shortcuts. The current version is also available as `smaMakeSpace.__version__`.
 
+## 1.1.0 – 2026-11-11
+
+- Closing space vertically no longer stops completely when a connected node would pass the
+  height of the selected node. The step is shortened so that node lands exactly level with
+  the selected node; from then on it stays, and the remaining nodes keep coming closer.
+
 ## 1.0.0 – 2026-10-05
 
 First versioned release.

@@ -416,6 +416,23 @@ class EvenSpacingTests(unittest.TestCase):
         self.assertEqual(transform.y - (hold.y + 30), 6)
         self.assertEqual(blur.y - transform.y, 48)            # layout below is kept
 
+    def test_connected_node_stops_level_with_reference_node(self):
+        """Screenshot case: Remove1 (left column, slightly lower than Remove2)
+        reaches Remove2's height first; Dot and Merge1 keep coming up."""
+        shuffle1 = Node("Shuffle1", "Shuffle", 0, 0)
+        remove1 = Node("Remove1", "Remove", 0, 120, inputs=[shuffle1])   # 20 lower
+        remove2 = Node("Remove2", "Remove", 300, 100)                    # reference
+        dot = Node("Dot", "Dot", 34, 300, 12, 12, inputs=[remove1])
+        merge = Node("Merge1", "Merge2", 300, 290, inputs=[remove2, dot])
+        nodes = [shuffle1, remove1, remove2, dot, merge]
+        close(nodes, remove2, DOWN)                                      # Ctrl+Shift+Up
+        self.assertEqual((remove1.y, dot.y, merge.y), (100, 280, 270))   # level with Remove2
+        close(nodes, remove2, DOWN)
+        self.assertEqual((remove1.y, dot.y, merge.y), (100, 256, 246))   # Remove1 stays
+        close(nodes, remove2, DOWN, times=10)
+        self.assertEqual((remove1.y, merge.y - (remove2.y + 18)), (100, 6))
+        self.assertEqual(merge.y - dot.y, -10)                           # Dot follows Merge1
+
     def test_dot_gets_the_same_gap(self):
         ref = Node("Ref", y=100)
         dot = Node("Dot", "Dot", 34, 150, 12, 12, inputs=[ref])

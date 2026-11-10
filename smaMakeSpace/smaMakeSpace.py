@@ -41,7 +41,7 @@ node by one step and its backdrops shrink. Nothing may end up overlapping:
 
 import nuke
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -392,8 +392,11 @@ def _room(mover, obstacles, direction):
     return room, obstacle
 
 
-def _violations(moved, grow, stationary, ref, direction, grid_step, distance):
+def _violations(moved, grow, stationary, ref, direction, grid_step, distance,
+                aligning=()):
     """Checks the remaining rules for pulling the moved items by distance.
+    Nodes named in aligning may come level with the reference node (the
+    distance has been limited so they do not cross it).
 
     Returns a list of (item that cannot move, obstacle).
     """
@@ -411,8 +414,8 @@ def _violations(moved, grow, stationary, ref, direction, grid_step, distance):
         target = pos - distance * sign
 
         # A node must not cross the line of the reference node.
-        if (_is_beyond(mover, ref_pos, direction) and
-                (target - ref_pos) * sign <= ALIGN_TOLERANCE):
+        if (mover.name() not in aligning and _is_beyond(mover, ref_pos, direction)
+                and (target - ref_pos) * sign <= ALIGN_TOLERANCE):
             violations.append((mover, ref))
             continue
 
@@ -460,8 +463,9 @@ def plan_close(ref, nodes, direction, grid=None, step=None):
     follower stays behind, together with its group.
 
     Vertically the distance is shortened if less than a full step is left
-    before a mandatory item reaches MIN_GAP. Horizontally it is always a full
-    step.
+    before a mandatory item reaches MIN_GAP, or before a mandatory node comes
+    level with the reference node (from then on it counts as "same height"
+    and stays). Horizontally it is always a full step.
 
     Returns: (nodes to move as dict name->node, backdrops to shrink as list,
               distance), or None if the move is blocked.
@@ -476,6 +480,8 @@ def plan_close(ref, nodes, direction, grid=None, step=None):
     group = _groups({name: node for name, node in moved.items()
                      if name not in mandatory}, neighbours)
     grow_names = {b.name() for b in grow}
+    ref_pos = _center(ref)[axis]
+    sign = direction[1]
 
     def blocked(mover, obstacle):
         if DEV_MODE:
@@ -498,10 +504,24 @@ def plan_close(ref, nodes, direction, grid=None, step=None):
                 return None
             distance = room
 
+        # Vertically, a mandatory node may come at most level with the
+        # reference node.
+        aligning = set()
+        if axis == 1:
+            aligning = {name for name, node in moved.items()
+                        if name not in group and node.Class() != BACKDROP}
+            for name in aligning:
+                node = moved[name]
+                if not _is_beyond(node, ref_pos, direction):
+                    continue
+                level = int((_center(node)[axis] - ref_pos) * sign)
+                if level < distance:
+                    distance = level
+
         failed = [(moved[name], obstacle) for name, (room, obstacle) in rooms.items()
                   if room is not None and room < distance]
         failed += _violations(moved, grow, stationary, ref, direction,
-                              grid[axis], distance)
+                              grid[axis], distance, aligning)
         if not failed:
             return moved, grow, distance
         for mover, obstacle in failed:

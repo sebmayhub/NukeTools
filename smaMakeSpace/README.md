@@ -3,7 +3,7 @@
 Nuke tool (16.0v3) that makes or closes space in the Node Graph next to a selected node –
 below, above, right or left of it.
 
-Version 1.0.0 – see the [changelog](CHANGELOG.md).
+Version 1.1.0 – see the [changelog](CHANGELOG.md).
 
 ## Usage
 
