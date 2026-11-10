@@ -7,8 +7,8 @@ Works in all four directions. Described here for "down"; "up" is mirrored, and
 for "same height", "grid width" for "grid height" and so on).
 
 Making space:
-  1. Exactly one node/Dot must be selected (the reference node), otherwise
-     nothing happens.
+  1. Exactly one node/Dot must be selected (the reference node). With several
+     nodes selected a message says so; otherwise nothing happens.
   2. All nodes that are continuously connected to the reference node via real
      pipes (inputs/outputs incl. masks, excluding hidden inputs) and whose
      center lies below the reference node are moved. A branch stops as soon
@@ -16,8 +16,10 @@ Making space:
      reached.
   3. Loose nodes (without any connection) and StickyNotes near the moved
      nodes are moved as well, as long as they lie below.
-  4. Backdrops containing the reference node are enlarged. All other affected
-     backdrops move completely, together with their contents.
+  4. Backdrops containing the reference node are only enlarged as far as
+     needed to keep BACKDROP_MARGIN between their edge and their contents.
+     All other affected backdrops move completely, together with their
+     contents.
   5. Anything below the reference node that a moved node, a moved backdrop or
      a growing backdrop would overlap (or come closer to than COLLISION_GAP)
      is pushed along: a node together with its whole pipe below the reference
@@ -25,7 +27,8 @@ Making space:
      collides.
 
 Closing space is the reverse: the same items are pulled towards the reference
-node by one step and its backdrops shrink. Nothing may end up overlapping:
+node by one step. Backdrops around it shrink back only while they fit their
+contents tightly (BACKDROP_MARGIN or less). Nothing may end up overlapping:
   - Nodes connected to the reference node (and the backdrops holding them)
     are mandatory. If one of them cannot move, nothing happens at all.
   - Everything else (loose nodes, pipes and backdrops that are merely nearby
@@ -41,7 +44,7 @@ node by one step and its backdrops shrink. Nothing may end up overlapping:
 
 import nuke
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -67,6 +70,12 @@ COLLISION_GAP = 12
 # exactly this far apart. 6 is what two standard nodes on neighbouring grid
 # rows have.
 MIN_GAP = 6
+
+# Free space (in Node Graph units) that a backdrop around the reference node
+# keeps between its edge and its contents. Making space only enlarges such a
+# backdrop when moved nodes would come closer to its edge than this.
+# 36 = two standard node heights.
+BACKDROP_MARGIN = 36
 
 # Fallback values in case the preferences cannot be read.
 DEFAULT_GRID_WIDTH = 110
@@ -254,21 +263,23 @@ def _add_backdrop(backdrop, nodes, moved, excluded):
     return added
 
 
-def _push_colliding(moved, grow, nodes, candidates, excluded, neighbours,
+def _push_colliding(moved, growth, nodes, candidates, excluded, neighbours,
                     ref_pos, direction, step):
     """Adds everything that a moved node, a moved backdrop or a growing
-    backdrop would run into. A hit node brings its whole pipe beyond ref_pos,
-    a hit backdrop its entire contents. Repeats for the added items until
-    nothing collides any more."""
-    pending = list(moved.values()) + list(grow)
+    backdrop (growth: list of (backdrop, amount)) would run into. A hit node
+    brings its whole pipe beyond ref_pos, a hit backdrop its entire contents.
+    Repeats for the added items until nothing collides any more."""
+    pending = [(n, step) for n in moved.values()]
+    pending += [(b, amount) for b, amount in growth if amount > 0]
     while pending:
-        rect = _rect(pending.pop())
+        item, advance = pending.pop()
+        rect = _rect(item)
         for other in candidates:
             if other.name() in moved or not _is_beyond(other, ref_pos, direction):
                 continue
             # Only what lies ahead counts, not what already overlaps.
             gap = _gap_ahead(rect, _rect(other), direction, COLLISION_GAP)
-            if gap is None or gap - step >= COLLISION_GAP:
+            if gap is None or gap - advance >= COLLISION_GAP:
                 continue
             if other.Class() == BACKDROP:
                 added = _add_backdrop(other, nodes, moved, excluded)
@@ -278,7 +289,53 @@ def _push_colliding(moved, grow, nodes, candidates, excluded, neighbours,
                 added = [n for name, n in group.items() if name not in moved]
                 for n in added:
                     moved[n.name()] = n
-            pending.extend(added)
+            pending.extend((n, step) for n in added)
+
+
+def _resizes(grow, nodes, moved, direction, distance):
+    """How much each backdrop around the reference node changes on the side
+    the direction points to when the moved items travel distance (negative:
+    pulled back towards the reference node).
+
+    Making space enlarges a backdrop only as far as needed to keep
+    BACKDROP_MARGIN (or the smaller margin it already had) to its contents.
+    Closing space shrinks it back only while it fits its contents tightly, so
+    it keeps its margin instead of gaining one.
+
+    Returns a list of (backdrop, amount); negative amounts shrink.
+    """
+    axis, sign = direction
+    resized = {}
+
+    def after(node):
+        rect = list(_rect(node))
+        if node.name() in moved:
+            rect[axis] += distance * sign
+        elif node.name() in resized:
+            return _resized(tuple(rect), resized[node.name()], direction)
+        return tuple(rect)
+
+    def margin(edge_rect, rect):
+        if sign > 0:
+            return edge_rect[axis] + edge_rect[axis + 2] - (rect[axis] + rect[axis + 2])
+        return rect[axis] - edge_rect[axis]
+
+    # Inner backdrops first, so that outer ones see their new size.
+    for backdrop in sorted(grow, key=lambda b: _rect(b)[2] * _rect(b)[3]):
+        rect = _rect(backdrop)
+        contents = [n for n in nodes if n.name() != backdrop.name()
+                    and _contains(backdrop, _center(n))]
+        amount = 0
+        if contents:
+            before = min(margin(rect, _rect(n)) for n in contents)
+            moved_margin = min(margin(rect, after(n)) for n in contents)
+            if distance > 0:
+                needed = min(BACKDROP_MARGIN, before) - moved_margin
+                amount = max(0, min(needed, distance))
+            elif before <= BACKDROP_MARGIN:
+                amount = -max(0, min(moved_margin - before, -distance))
+        resized[backdrop.name()] = amount
+    return [(b, resized[b.name()]) for b in grow]
 
 
 def collect(ref, nodes, direction, grid=None, step=None, followers=True):
@@ -289,7 +346,8 @@ def collect(ref, nodes, direction, grid=None, step=None, followers=True):
     nearby or in the way.
 
     Returns: (nodes to move as dict name->node,
-              backdrops to enlarge as list)
+              backdrops around the reference node as list of
+              (backdrop, amount to enlarge))
     """
     axis = direction[0]
     grid = grid or _grid_size()
@@ -314,11 +372,12 @@ def collect(ref, nodes, direction, grid=None, step=None, followers=True):
     # so repeat until nothing changes any more.
     while True:
         count = len(moved)
+        growth = _resizes(grow, nodes, moved, direction, step)
 
         anchors = []
         if followers:
             # 2. Nodes and backdrops in the way (chain reaction).
-            _push_colliding(moved, grow, nodes, candidates, excluded,
+            _push_colliding(moved, growth, nodes, candidates, excluded,
                             neighbours, ref_pos, direction, step)
 
             # 3. Nearby loose nodes and StickyNotes (only around connected nodes).
@@ -346,7 +405,7 @@ def collect(ref, nodes, direction, grid=None, step=None, followers=True):
                 _add_backdrop(backdrop, nodes, moved, excluded)
 
         if len(moved) == count:
-            return moved, grow
+            return moved, growth
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +451,7 @@ def _room(mover, obstacles, direction):
     return room, obstacle
 
 
-def _violations(moved, grow, stationary, ref, direction, grid_step, distance,
+def _violations(moved, stationary, ref, direction, grid_step, distance,
                 aligning=()):
     """Checks the remaining rules for pulling the moved items by distance.
     Nodes named in aligning may come level with the reference node (the
@@ -403,7 +462,6 @@ def _violations(moved, grow, stationary, ref, direction, grid_step, distance,
     axis, sign = direction
     across = 1 - axis
     ref_pos = _center(ref)[axis]
-    grow_names = {b.name() for b in grow}
     violations = []
 
     for mover in moved.values():
@@ -435,22 +493,6 @@ def _violations(moved, grow, stationary, ref, direction, grid_step, distance,
                 violations.append((mover, other))
                 break
 
-    # A shrinking backdrop must keep everything inside that does not move.
-    for backdrop in grow:
-        shrunk = _resized(_rect(backdrop), -distance, direction)
-        for other in stationary:
-            if other.name() in grow_names or not _contains(backdrop, _center(other)):
-                continue
-            rect = _rect(other)
-            if sign < 0:
-                inside = rect[axis] - MIN_GAP >= shrunk[axis]
-            else:
-                inside = (rect[axis] + rect[axis + 2] + MIN_GAP
-                          <= shrunk[axis] + shrunk[axis + 2])
-            if not inside:
-                violations.append((backdrop, other))
-                break
-
     return violations
 
 
@@ -467,14 +509,16 @@ def plan_close(ref, nodes, direction, grid=None, step=None):
     level with the reference node (from then on it counts as "same height"
     and stays). Horizontally it is always a full step.
 
-    Returns: (nodes to move as dict name->node, backdrops to shrink as list,
-              distance), or None if the move is blocked.
+    Returns: (nodes to move as dict name->node, backdrops around the
+              reference node as list of (backdrop, amount), distance),
+             or None if the move is blocked.
     """
     axis = direction[0]
     grid = grid or _grid_size()
     if step is None:
         step = grid[axis]
-    moved, grow = collect(ref, nodes, direction, grid, step)
+    moved, growth = collect(ref, nodes, direction, grid, step)
+    grow = [backdrop for backdrop, _ in growth]
     mandatory, _ = collect(ref, nodes, direction, grid, step, followers=False)
     neighbours, _ = _connections(nodes)
     group = _groups({name: node for name, node in moved.items()
@@ -520,10 +564,10 @@ def plan_close(ref, nodes, direction, grid=None, step=None):
 
         failed = [(moved[name], obstacle) for name, (room, obstacle) in rooms.items()
                   if room is not None and room < distance]
-        failed += _violations(moved, grow, stationary, ref, direction,
+        failed += _violations(moved, stationary, ref, direction,
                               grid[axis], distance, aligning)
         if not failed:
-            return moved, grow, distance
+            return moved, _resizes(grow, nodes, moved, direction, -distance), distance
         for mover, obstacle in failed:
             if mover.name() not in group:
                 blocked(mover, obstacle)
@@ -538,26 +582,33 @@ def plan_close(ref, nodes, direction, grid=None, step=None):
 # ---------------------------------------------------------------------------
 
 def _reference_node():
-    """The single selected node, or None if the selection does not qualify."""
+    """The single selected node, or None if the selection does not qualify.
+    Several selected nodes are pointed out in a message."""
     selection = nuke.selectedNodes()
+    if len(selection) > 1:
+        nuke.message("smaMakeSpace\n\n"
+                     "Please select exactly one node or Dot.\n"
+                     "Space is made or closed next to this node.")
+        return None
     if len(selection) != 1 or selection[0].Class() in (BACKDROP, STICKY):
         return None
     return selection[0]
 
 
-def _apply(moved, backdrops, direction, amount):
-    """Moves the nodes by amount in the given direction and enlarges the
-    backdrops by amount on that side (negative: back / shrink), as one undo
-    step."""
-    if not moved and not backdrops:
+def _apply(moved, resizes, direction, offset):
+    """Moves the nodes by offset in the given direction (negative: back) and
+    resizes the backdrops on that side by their amount (negative: shrink), as
+    one undo step."""
+    resizes = [(backdrop, amount) for backdrop, amount in resizes if amount]
+    if not moved and not resizes:
         return
     axis, sign = direction
     undo = nuke.Undo()
     undo.begin("smaMakeSpace")
     try:
         for node in moved.values():
-            _set_pos(node, axis, _rect(node)[axis] + amount * sign)
-        for backdrop in backdrops:
+            _set_pos(node, axis, _rect(node)[axis] + offset * sign)
+        for backdrop, amount in resizes:
             size = backdrop[SIZE_KNOBS[axis]]
             size.setValue(int(size.value()) + amount)
             if sign < 0:
@@ -575,8 +626,8 @@ def make_space(direction=DOWN):
             return
         grid = _grid_size()
         step = grid[direction[0]]
-        moved, grow = collect(ref, nuke.allNodes(), direction, grid, step)
-        _apply(moved, grow, direction, step)
+        moved, growth = collect(ref, nuke.allNodes(), direction, grid, step)
+        _apply(moved, growth, direction, step)
 
 
 def close_space(direction=DOWN):

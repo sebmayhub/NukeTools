@@ -4,6 +4,15 @@ All notable changes to smaMakeSpace. Versions follow `MAJOR.MINOR.PATCH`:
 PATCH for fixes, MINOR for new features, MAJOR for changes that alter existing behaviour
 or shortcuts. The current version is also available as `smaMakeSpace.__version__`.
 
+## 1.2.0 – 2026-11-11
+
+- With several nodes selected, a message asks to select exactly one node (confirm with
+  Enter). With nothing selected the shortcuts still do nothing.
+- Backdrops around the selected node only grow as far as needed to keep `BACKDROP_MARGIN`
+  (36 units, two standard node heights) between their edge and their contents; a backdrop
+  with more room stays as it is. Closing space shrinks a backdrop back only while it fits
+  its contents that tightly.
+
 ## 1.1.0 – 2026-11-11
 
 - Closing space vertically no longer stops completely when a connected node would pass the

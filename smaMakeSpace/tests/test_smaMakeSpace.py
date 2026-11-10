@@ -91,6 +91,8 @@ fake.toNode = lambda name: PREFS if Node.TRANSPOSED else None  # None -> fallbac
 fake.NODES = []
 fake.allNodes = lambda: list(fake.NODES)
 fake.selectedNodes = lambda: [n for n in fake.NODES if n.knob("selected") and n["selected"].value()]
+fake.MESSAGES = []
+fake.message = fake.MESSAGES.append
 sys.modules["nuke"] = fake
 
 import smaMakeSpace  # noqa: E402
@@ -233,11 +235,12 @@ class MakeSpaceTests(unittest.TestCase):
         self.assertEqual((pink.y, inside.y), (487, 574))
 
     def test_growing_backdrop_pushes_node_below(self):
-        ref = Node("Ref", y=100)
-        bd = backdrop("Bd", -50, 50, 300, 100)                # contains Ref, bottom 150
+        ref = Node("Ref", y=60)
+        a = Node("A", y=100, inputs=[ref])                    # 32 above Bd's bottom
+        bd = backdrop("Bd", -50, 30, 300, 120)                # contains both, bottom 150
         loose = Node("Loose", "Read", 150, 163)
-        run([ref, bd, loose], ref)
-        self.assertEqual((height(bd), loose.y), (124, 187))
+        run([ref, a, bd, loose], ref)
+        self.assertEqual((a.y, height(bd), loose.y), (124, 144, 187))
 
     def test_hidden_input_is_not_a_pipe(self):
         ref = Node("Ref", y=100)
@@ -256,7 +259,7 @@ class MakeSpaceTests(unittest.TestCase):
         self.assertEqual(sticky_near.y, 244)
         self.assertEqual((loose_far.y, loose_above.y, chain.y), (200, 60, 220))
 
-    def test_backdrops_grow_and_move(self):
+    def test_backdrops_grow_only_when_needed_and_move(self):
         ref = Node("Ref", y=100)
         a = Node("A", y=300, inputs=[ref])
         outer = backdrop("Outer", -50, 0, 400, 600)
@@ -264,8 +267,8 @@ class MakeSpaceTests(unittest.TestCase):
         lower = backdrop("Lower", -20, 250, 300, 150)         # contains A
         passenger = Node("Passenger", "Read", 150, 300)       # inside Lower, unconnected
         run([ref, a, outer, inner, lower, passenger], ref)
-        self.assertEqual((outer.y, height(outer)), (0, 624))
-        self.assertEqual((inner.y, height(inner)), (50, 124))
+        self.assertEqual((outer.y, height(outer)), (0, 600))  # plenty of room
+        self.assertEqual((inner.y, height(inner)), (50, 100))  # nothing moves inside
         self.assertEqual((lower.y, height(lower)), (274, 150))
         self.assertEqual((a.y, passenger.y), (324, 324))
 
@@ -277,7 +280,31 @@ class MakeSpaceTests(unittest.TestCase):
         bd = backdrop("Bd", -50, 150, 200, 100)               # contains Ref
         run([top, mid, ref, below, bd], ref, UP)
         self.assertEqual((top.y, mid.y, ref.y, below.y), (-24, 76, 200, 300))
-        self.assertEqual((bd.y, height(bd)), (126, 124))
+        self.assertEqual((bd.y, height(bd)), (150, 100))
+
+    def test_backdrop_grows_only_to_keep_its_margin(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=300, inputs=[ref])
+        bd = backdrop("Bd", -50, 0, 300, 400)                 # A is 82 above the bottom
+        nodes = [ref, a, bd]
+        heights = []
+        for _ in range(3):
+            run(nodes, ref)
+            heights.append(height(bd))
+        self.assertEqual(a.y, 372)
+        self.assertEqual(heights, [400, 402, 426])            # 58, then 36 kept
+        self.assertEqual(height(bd) - (a.y + 18), 36)
+
+    def test_backdrop_with_room_stays_put(self):
+        """Screenshot case: the Dots above Shuffle3 move up, the backdrop's top
+        edge is far enough away and stays where it is."""
+        src = Node("Src", "Read", 100, -200)                  # outside the backdrop
+        dot = Node("Dot", "Dot", 134, 340, 12, 12, inputs=[src])
+        shuffle3 = Node("Shuffle3", "Shuffle", 100, 480, 80, 90, inputs=[dot])
+        bd = backdrop("Bd", 0, 0, 1200, 1000)
+        run([src, dot, shuffle3, bd], shuffle3, UP)
+        self.assertEqual((dot.y, src.y), (316, -224))
+        self.assertEqual((bd.y, height(bd)), (0, 1000))
 
 
 class CloseSpaceTests(unittest.TestCase):
@@ -312,7 +339,7 @@ class CloseSpaceTests(unittest.TestCase):
         before = [(n.name(), n.y) for n in nodes]
         run(nodes, ref)
         self.assertEqual((a.y, f1.y, g.y, sticky.y), (224, 255, 286, 234))
-        self.assertEqual(height(outer), 124)
+        self.assertEqual(height(outer), 100)
         close(nodes, ref)
         self.assertEqual([(n.name(), n.y) for n in nodes], before)
         self.assertEqual(height(outer), 100)
@@ -359,15 +386,31 @@ class CloseSpaceTests(unittest.TestCase):
         close(nodes, ref, times=2)
         self.assertEqual(tall.y, by_axis(124, 129))           # 6 below Ref / not at all
 
-    def test_backdrop_shrinks_but_keeps_reference_node(self):
+    def test_backdrop_keeps_its_size_when_nothing_inside_moves(self):
         ref = Node("Ref", y=100)
         a = Node("A", y=300, inputs=[ref])
-        bd = backdrop("Bd", -50, 50, 300, 100)                # bottom 150
+        bd = backdrop("Bd", -50, 50, 300, 100)                # contains only Ref
         nodes = [ref, a, bd]
-        close(nodes, ref)
-        self.assertEqual((a.y, bd.y, height(bd)), (276, 50, 76))
-        close(nodes, ref)                                     # Ref would stick out
-        self.assertEqual((a.y, height(bd)), (276, 76))
+        close(nodes, ref, times=2)
+        self.assertEqual((a.y, bd.y, height(bd)), (252, 50, 100))
+
+    def test_tight_backdrop_shrinks_back(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=300, inputs=[ref])
+        bd = backdrop("Bd", -50, 0, 300, 400)
+        nodes = [ref, a, bd]
+        for _ in range(3):
+            run(nodes, ref)
+        self.assertEqual(height(bd), 426)
+        close(nodes, ref)                                     # margin stays 36
+        self.assertEqual((a.y, height(bd)), (348, 402))
+
+    def test_roomy_backdrop_does_not_shrink(self):
+        ref = Node("Ref", y=100)
+        a = Node("A", y=300, inputs=[ref])
+        bd = backdrop("Bd", -50, 0, 300, 400)                 # A is 82 above the bottom
+        close([ref, a, bd], ref)
+        self.assertEqual((a.y, height(bd)), (276, 400))
 
     def test_moving_backdrop_stops_below_reference_node(self):
         ref = Node("Ref", y=100)
@@ -387,14 +430,26 @@ class CloseSpaceTests(unittest.TestCase):
         bd = backdrop("Bd", -50, 250, 200, 100)               # contains Ref
         close([top, a, ref, below, bd], ref, UP)
         self.assertEqual((top.y, a.y, ref.y, below.y), (124, 224, 300, 400))
-        self.assertEqual((bd.y, height(bd)), (274, 76))
+        self.assertEqual((bd.y, height(bd)), (250, 100))
 
     def test_nothing_without_single_selection(self):
         ref = Node("Ref", y=100)
         a = Node("A", y=300, inputs=[ref])
         fake.NODES = [ref, a]
+        del fake.MESSAGES[:]
+        smaMakeSpace.close_space(DOWN)
+        self.assertEqual((a.y, fake.MESSAGES), (300, []))     # nothing selected: silent
+
+    def test_several_selected_nodes_show_a_message(self):
+        ref = Node("Ref", y=100, selected=True)
+        a = Node("A", y=300, inputs=[ref], selected=True)
+        fake.NODES = [ref, a]
+        del fake.MESSAGES[:]
+        smaMakeSpace.make_space(DOWN)
         smaMakeSpace.close_space(DOWN)
         self.assertEqual(a.y, 300)
+        self.assertEqual(len(fake.MESSAGES), 2)
+        self.assertIn("exactly one node", fake.MESSAGES[0])
 
 
 class EvenSpacingTests(unittest.TestCase):
@@ -498,14 +553,14 @@ class HorizontalLayoutTests(unittest.TestCase):
         self.assertEqual((src.x, dot.x), (410, 444))
         self.assertEqual((top.x, ref.x, below.x), (0, 0, 0))
         self.assertEqual([n.y for n in nodes], [0, 0, 103, 100, 200, 50])
-        self.assertEqual((bd.x, width(bd), height(bd)), (-50, 310, 100))
+        self.assertEqual((bd.x, width(bd), height(bd)), (-50, 200, 100))  # room enough
 
-    def test_make_space_left_grows_backdrop_to_the_left(self):
+    def test_make_space_left(self):
         nodes = top, src, dot, ref, below, bd = self.scene(side=-1)
         run(list(nodes), ref, LEFT)
         self.assertEqual((src.x, dot.x), (-410, -376))
         self.assertEqual((top.x, ref.x, below.x), (0, 0, 0))
-        self.assertEqual((bd.x, width(bd)), (-160, 310))
+        self.assertEqual((bd.x, width(bd)), (-50, 200))
 
     def test_close_space_right_reverts_make_space(self):
         nodes = top, src, dot, ref, below, bd = self.scene()
@@ -513,8 +568,8 @@ class HorizontalLayoutTests(unittest.TestCase):
         run(nodes, ref, RIGHT)
         close(nodes, ref, RIGHT)
         self.assertEqual((src.x, dot.x, bd.x, width(bd)), (300, 334, -50, 200))
-        close(nodes, ref, RIGHT)                              # Ref would stick out of Bd
-        self.assertEqual((src.x, dot.x, width(bd)), (300, 334, 200))
+        close(nodes, ref, RIGHT)                              # further in, Bd unchanged
+        self.assertEqual((src.x, dot.x, width(bd)), (190, 224, 200))
 
     def test_close_space_right_stops_at_one_grid_width(self):
         top = Node("Top", "Read", 0, 0)

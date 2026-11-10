@@ -3,11 +3,12 @@
 Nuke tool (16.0v3) that makes or closes space in the Node Graph next to a selected node –
 below, above, right or left of it.
 
-Version 1.1.0 – see the [changelog](CHANGELOG.md).
+Version 1.2.0 – see the [changelog](CHANGELOG.md).
 
 ## Usage
 
-Select exactly one node or Dot (the reference node), then in the Node Graph:
+Select exactly one node or Dot (the reference node), then in the Node Graph (with several
+nodes selected, a message asks you to select just one):
 
 | Shortcut | Action |
 | --- | --- |
@@ -38,8 +39,10 @@ same rules on the horizontal axis: read "same column" for "same height", "grid w
   slightly offset horizontal connections stay in place.
 - Loose nodes (without connections) and StickyNotes within 3 grid units of moved nodes are
   moved along.
-- Backdrops around the reference node are enlarged; all other affected backdrops move
-  completely, together with their contents.
+- Backdrops around the reference node are only enlarged as far as needed to keep
+  `BACKDROP_MARGIN` = 36 units (two standard node heights) between their edge and their
+  contents. A backdrop with more room than that stays as it is. All other affected backdrops
+  move completely, together with their contents.
 - Nothing is pushed onto anything else: whatever below the reference node a moved node, a
   moved backdrop or a growing backdrop would overlap (or get closer to than
   `COLLISION_GAP` = 12 units) is pushed along – a node together with its whole pipe below
@@ -49,7 +52,8 @@ same rules on the horizontal axis: read "same column" for "same height", "grid w
 ## Closing space
 
 The reverse of making space: the same items are pulled one grid step towards the reference
-node, and the backdrops around it shrink. Closing never makes anything overlap:
+node. Backdrops around it shrink back only while they fit their contents tightly
+(`BACKDROP_MARGIN` or less), so they keep their margin. Closing never makes anything overlap:
 
 - Nodes connected to the reference node, and the backdrops holding them, are mandatory. If
   one of them would get too close to something that does not move, the key press is ignored.
@@ -58,8 +62,8 @@ node, and the backdrops around it shrink. Closing never makes anything overlap:
 - The limits:
   - everything keeps at least `MIN_GAP` = 6 units of free space to whatever does not move
     (6 is what two standard nodes on neighbouring grid rows have),
-  - no node crosses the height (or column) of the reference node,
-  - a shrinking backdrop keeps everything inside that does not move.
+  - no node crosses the height (or column) of the reference node; vertically, a connected
+    node that would cross it stops exactly level with it instead.
 - Vertically, the last step is shortened so that exactly `MIN_GAP` remains. Fully closed
   nodes are therefore evenly spaced, however tall they are (labels, postage stamps, Dots).
 - Horizontally, only whole grid steps are made, and nodes beside each other keep one grid
