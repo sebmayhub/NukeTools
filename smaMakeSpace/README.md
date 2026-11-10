@@ -72,7 +72,7 @@ With `DEV_MODE = True` the Script Editor shows what blocked an ignored key press
 In `~/.nuke/init.py`:
 
 ```python
-nuke.pluginAddPath("D:/AI/Claude/NukeTools/smaMakeSpace")  # path to this folder
+nuke.pluginAddPath("./smaTools/smaMakeSpace")  # relative to ~/.nuke
 ```
 
 Configuration (tolerances, gaps, proximity radius, `DEV_MODE`) is at the top of

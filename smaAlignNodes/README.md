@@ -29,7 +29,7 @@ button, drag in one direction and release:
 In `~/.nuke/init.py`:
 
 ```python
-nuke.pluginAddPath("D:/AI/Claude/NukeTools/smaAlignNodes")  # path to this folder
+nuke.pluginAddPath("./smaTools/smaAlignNodes")  # relative to ~/.nuke
 ```
 
 Configuration (`GESTURE_MODIFIERS`, `MIN_DISTANCE`, `DEV_MODE`) is at the top of

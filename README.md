@@ -1,6 +1,9 @@
-# NukeTools
+# smaTools
 
-A collection of custom tools for Foundry Nuke (16.0v3). Each tool lives in its own folder.
+A collection of custom tools for Foundry Nuke. Each tool lives in its own folder and states
+the Nuke versions it supports in its README. The GitHub repository is called
+[NukeTools](https://github.com/sebmayhub/NukeTools); locally it is checked out as
+`~/.nuke/smaTools`.
 
 | Tool | Version | Description |
 | --- | --- | --- |
@@ -11,10 +14,17 @@ Each tool is versioned on its own; releases are tagged as `<tool>-v<version>`.
 
 ## Installation
 
-Add one line per tool to `~/.nuke/init.py`, e.g.:
+Clone the repository into the Nuke user folder as `smaTools`:
+
+```bash
+git clone https://github.com/sebmayhub/NukeTools.git ~/.nuke/smaTools
+```
+
+Then add one line per tool to `~/.nuke/init.py` (relative paths resolve against `~/.nuke`):
 
 ```python
-nuke.pluginAddPath("D:/AI/Claude/NukeTools/smaMakeSpace")
+nuke.pluginAddPath("./smaTools/smaAlignNodes")
+nuke.pluginAddPath("./smaTools/smaMakeSpace")
 ```
 
 See each tool's README for details.
