@@ -4,6 +4,7 @@ A collection of custom tools for Foundry Nuke (16.0v3). Each tool lives in its o
 
 | Tool | Version | Description |
 | --- | --- | --- |
+| [smaAlignNodes](smaAlignNodes) | 1.0.0 | Aligns the selected nodes horizontally or vertically via mouse gesture (Alt+Shift + drag). |
 | [smaMakeSpace](smaMakeSpace) | 1.0.0 | Makes or closes space in the Node Graph next to a selected node (in all four directions) via shortcut. |
 
 Each tool is versioned on its own; releases are tagged as `<tool>-v<version>`.
